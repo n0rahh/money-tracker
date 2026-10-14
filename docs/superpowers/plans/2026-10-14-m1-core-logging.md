@@ -19,7 +19,7 @@
 - Amounts are integers in minor units (cents); `date` is a local `YYYY-MM-DD` string; `at` is a Firestore `Timestamp`.
 - Root collections `categories`, `transactions`, `settings` (document `settings/main`); one composite index on `transactions`: `date DESC, at DESC`.
 - Design tokens exactly as spec §8: bg `#0a0a0d`, surface `#131318`, surface-2 `#1b1b22`, border `#26262f`, text `#f4f4f6`, muted `#8c8c9a`, accent `#c6f432`, accent-ink `#0a0a0d`, expense `#ff6b7a`, danger `#ff5c5c`; radii 20 px (cards) and 14 px (chips/keys).
-- Touch targets ≥ 44 × 44 px, keypad keys 56 px tall, every input 16 px font, `viewport-fit=cover` with safe-area padding, `prefers-reduced-motion` respected.
+- Touch targets ≥ 44 × 44 px everywhere (`min-h-11`/`size-11` minimum on every button, chip, swatch and icon control), keypad keys 56 px tall, every input 16 px font, `viewport-fit=cover` with safe-area padding, `prefers-reduced-motion` respected.
 - UI code never `await`s a Firestore write before updating the screen; it calls the write, attaches `.catch` → toast, and closes immediately.
 - The service worker must not intercept `/__/*` (Firebase Auth handler): `navigateFallbackDenylist: [/^\/__\//]`.
 - Production JS ≤ 250 kB gzipped (check in Task 16).
@@ -529,7 +529,7 @@ git commit -m "feat: domain types, category palette, icon map and default catego
 ### Task 3: Theme, app shell, routing, toast and Add-sheet contexts
 
 **Files:**
-- Create: `public/logo.svg`, `src/components/Button.tsx`, `src/components/Button.test.tsx`, `src/components/Sheet.tsx`, `src/context/ToastContext.tsx`, `src/context/AddSheetContext.tsx`, `src/components/AppShell.tsx`, `src/pages/HomePage.tsx`, `src/pages/CategoriesPage.tsx`, `src/pages/SettingsPage.tsx`
+- Create: `public/logo.svg`, `src/components/Button.tsx`, `src/components/Button.test.tsx`, `src/components/Sheet.tsx`, `src/components/Sheet.test.tsx`, `src/context/ToastContext.tsx`, `src/context/AddSheetContext.tsx`, `src/components/AppShell.tsx`, `src/pages/HomePage.tsx`, `src/pages/CategoriesPage.tsx`, `src/pages/SettingsPage.tsx`
 - Replace: `index.html`, `src/index.css`, `src/App.tsx`
 
 **Interfaces:**
@@ -598,11 +598,12 @@ body {
   overscroll-behavior: none;
 }
 
-* { box-sizing: border-box; }
+@layer base {
+  button { touch-action: manipulation; }
+  button:not(:disabled) { cursor: pointer; }
+}
 
-button, input, select, textarea { font: inherit; }
-button { touch-action: manipulation; cursor: pointer; }
-input, select, textarea { font-size: 16px; } /* 16px stops iOS zooming on focus */
+input, select, textarea { font-size: 16px; } /* unlayered on purpose: must beat text-* utilities so iOS never zooms on focus */
 
 .tnum { font-variant-numeric: tabular-nums; }
 .safe-pt { padding-top: max(0.5rem, env(safe-area-inset-top)); }
@@ -680,7 +681,7 @@ Run: `npx vitest run src/components` → Expected: 2 tests PASS.
 
 ```tsx
 import { X } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 
 type Props = {
   open: boolean
@@ -695,18 +696,59 @@ type Props = {
   dismissible?: boolean
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Sheet({ open, title, onClose, children, footer, full = false, headerRight, dismissible = true }: Props) {
+  const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && dismissible) onClose() }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (dismissible) onClose()
+        return
+      }
+      const dialog = dialogRef.current
+      if (e.key !== 'Tab' || !dialog) return
+      // Trap Tab inside the dialog: wrap at both ends, and pull focus back in if it ever left.
+      const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
+      if (items.length === 0) {
+        e.preventDefault()
+        dialog.focus()
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      const outside = !dialog.contains(active)
+      if (e.shiftKey && (outside || active === first || active === dialog)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (outside || active === last)) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
     window.addEventListener('keydown', onKey)
     return () => {
       document.body.style.overflow = prev
       window.removeEventListener('keydown', onKey)
     }
   }, [open, onClose, dismissible])
+
+  // Kept apart from the effect above: that one re-runs whenever `onClose` changes identity and must not re-steal focus.
+  useEffect(() => {
+    if (!open) return
+    const opener = document.activeElement
+    dialogRef.current?.focus({ preventScroll: true })
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus()
+    }
+  }, [open])
 
   if (!open) return null
 
@@ -716,24 +758,25 @@ export function Sheet({ open, title, onClose, children, footer, full = false, he
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center md:p-6">
-      <button
-        type="button"
-        aria-label="Dismiss"
+      <div
+        aria-hidden="true"
         className="absolute inset-0 bg-black/60 transition-opacity duration-200 starting:opacity-0"
         onClick={dismissible ? onClose : undefined}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
-        className={`relative z-10 flex w-full max-w-lg flex-col border border-border bg-surface transition-transform duration-200 ease-out starting:translate-y-full md:starting:translate-y-4 ${shape}`}
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={`relative z-10 flex w-full max-w-lg flex-col border border-border bg-surface outline-none! transition-transform duration-200 ease-out starting:translate-y-full md:starting:translate-y-4 ${shape}`}
       >
         <div className="safe-pt flex items-center justify-between px-4 pb-2">
-          <h2 className="text-lg font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
           <div className="flex items-center gap-2">
             {headerRight}
             {dismissible ? (
-              <button type="button" aria-label="Close" onClick={onClose} className="flex size-10 items-center justify-center rounded-full bg-surface-2 text-muted">
+              <button type="button" aria-label="Close" onClick={onClose} className="flex size-11 items-center justify-center rounded-full bg-surface-2 text-muted">
                 <X size={18} />
               </button>
             ) : null}
@@ -836,7 +879,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh bg-bg text-text">
       <div className="mx-auto flex min-h-dvh max-w-5xl">
-        <aside className="safe-pt hidden w-56 shrink-0 flex-col border-r border-border px-4 py-6 md:flex">
+        <aside className="hidden w-56 shrink-0 flex-col border-r border-border px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-6 md:flex">
           <p className="mb-8 text-xl font-semibold tracking-tight text-accent">Money</p>
           <nav className="flex flex-1 flex-col gap-1">
             {links.map(({ to, label, icon: Icon, end }) => (
@@ -858,7 +901,7 @@ export function AppShell() {
         </aside>
 
         <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
-          <main className="safe-pt flex-1 px-4 pb-28 md:px-8 md:pb-8">
+          <main className="safe-pt flex-1 px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] md:px-8 md:pb-8">
             <div className="mx-auto w-full max-w-[640px]">
               <Outlet />
             </div>
@@ -869,7 +912,7 @@ export function AppShell() {
             aria-label="Add transaction"
             onClick={openAdd}
             className="fixed right-4 z-40 flex size-14 items-center justify-center rounded-full bg-accent text-accent-ink shadow-lg transition active:scale-95 md:hidden"
-            style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+            style={{ bottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
           >
             <Plus size={28} />
           </button>
@@ -2771,7 +2814,7 @@ export function SegmentedControl<T extends string>({ value, options, onChange, a
           role="radio"
           aria-checked={o.value === value}
           onClick={() => onChange(o.value)}
-          className={`min-h-10 flex-1 rounded-full text-sm font-medium transition ${o.value === value ? 'bg-surface text-text' : 'text-muted'}`}
+          className={`min-h-11 flex-1 rounded-full text-sm font-medium transition ${o.value === value ? 'bg-surface text-text' : 'text-muted'}`}
         >
           {o.label}
         </button>
@@ -2837,7 +2880,7 @@ export function DateChips({ value, onChange }: Props) {
       type="button"
       aria-pressed={value === date}
       onClick={() => onChange(date)}
-      className={`min-h-10 rounded-full px-3 text-sm font-medium ${value === date ? 'bg-text text-bg' : 'bg-surface-2 text-muted'}`}
+      className={`min-h-11 rounded-full px-3 text-sm font-medium ${value === date ? 'bg-text text-bg' : 'bg-surface-2 text-muted'}`}
     >
       {label}
     </button>
@@ -2846,7 +2889,7 @@ export function DateChips({ value, onChange }: Props) {
     <div className="flex items-center gap-2">
       {chip('Today', today)}
       {chip('Yesterday', yesterday)}
-      <label className={`relative flex min-h-10 items-center rounded-full px-3 text-sm font-medium ${custom ? 'bg-text text-bg' : 'bg-surface-2 text-muted'}`}>
+      <label className={`relative flex min-h-11 items-center rounded-full px-3 text-sm font-medium ${custom ? 'bg-text text-bg' : 'bg-surface-2 text-muted'}`}>
         {custom ? value : 'Pick…'}
         <input
           type="date"
@@ -2950,7 +2993,7 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       onClose={onClose}
       headerRight={
         editing ? (
-          <button type="button" aria-label="Delete" onClick={remove} className="flex size-10 items-center justify-center rounded-full bg-danger/15 text-danger">
+          <button type="button" aria-label="Delete" onClick={remove} className="flex size-11 items-center justify-center rounded-full bg-danger/15 text-danger">
             <Trash2 size={18} />
           </button>
         ) : null
@@ -3516,7 +3559,7 @@ export function ColorPicker({ value, onChange }: { value: ColorKey; onChange: (c
           aria-checked={k === value}
           aria-label={k}
           onClick={() => onChange(k)}
-          className="size-9 rounded-full border-2 transition active:scale-95"
+          className="size-11 rounded-full border-2 transition active:scale-95"
           style={{ background: CATEGORY_COLORS[k], borderColor: k === value ? '#f4f4f6' : 'transparent' }}
         />
       ))}
