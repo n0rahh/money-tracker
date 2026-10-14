@@ -7,6 +7,19 @@ describe('minorUnitDigits', () => {
     expect(minorUnitDigits('JPY')).toBe(0)
     expect(minorUnitDigits('NOPE')).toBe(2)
   })
+  it('uses the ISO 4217 scale, not the runtime ICU data', () => {
+    expect(minorUnitDigits('HUF')).toBe(2)
+    expect(minorUnitDigits('COP')).toBe(2)
+    expect(minorUnitDigits('IQD')).toBe(3)
+    expect(minorUnitDigits('KWD')).toBe(3)
+    expect(minorUnitDigits('CLF')).toBe(4)
+  })
+  it('falls back to 2 for unknown codes and tolerates case and whitespace', () => {
+    expect(minorUnitDigits('XYZ')).toBe(2)
+    expect(minorUnitDigits('jpy')).toBe(0)
+    expect(minorUnitDigits(' pln ')).toBe(2)
+    expect(minorUnitDigits(' jpy ')).toBe(0)
+  })
 })
 
 describe('formatMoney', () => {
@@ -19,6 +32,10 @@ describe('formatMoney', () => {
     expect(formatMoney(250, 'USD', 'en', { signed: true })).toBe('+$2.50')
     expect(formatMoney(-250, 'USD', 'en', { signed: true })).toBe('-$2.50')
     expect(formatMoney(0, 'USD', 'en', { signed: true })).toBe('$0.00')
+  })
+  it('pins ISO digits regardless of ICU data', () => {
+    expect(formatMoney(150000, 'HUF', 'en')).toMatch(/1,500\.00$/)
+    expect(formatMoney(1234567, 'KWD', 'en')).toMatch(/1,234\.567$/)
   })
 })
 
@@ -36,6 +53,10 @@ describe('parseMinor', () => {
     expect(parseMinor('', 2)).toBeNull()
     expect(parseMinor('1,5', 2)).toBeNull()
     expect(parseMinor('abc', 2)).toBeNull()
+  })
+  it('rejects results beyond the safe integer range', () => {
+    expect(parseMinor('9007199254740993', 0)).toBeNull()
+    expect(parseMinor('90071992547409.93', 2)).toBeNull()
   })
 })
 
