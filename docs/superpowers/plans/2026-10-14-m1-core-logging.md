@@ -254,9 +254,13 @@ interface ImportMetaEnv {
 }
 ```
 
-`src/test/setup.ts`:
+`src/test/setup.ts` (Vitest globals are off, so Testing Library's automatic `afterEach(cleanup)` never registers; register it here or rendered DOM leaks between tests):
 ```ts
 import '@testing-library/jest-dom/vitest'
+import { cleanup } from '@testing-library/react'
+import { afterEach } from 'vitest'
+
+afterEach(cleanup)
 ```
 
 - [ ] **Step 6: Verify the toolchain**
