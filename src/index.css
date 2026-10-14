@@ -1,1 +1,46 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/dm-sans';
+
+@theme {
+  --color-bg: #0a0a0d;
+  --color-surface: #131318;
+  --color-surface-2: #1b1b22;
+  --color-border: #26262f;
+  --color-text: #f4f4f6;
+  --color-muted: #8c8c9a;
+  --color-accent: #c6f432;
+  --color-accent-ink: #0a0a0d;
+  --color-expense: #ff6b7a;
+  --color-danger: #ff5c5c;
+  --font-sans: 'DM Sans Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --radius-card: 20px;
+  --radius-chip: 14px;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+* { box-sizing: border-box; }
+
+button, input, select, textarea { font: inherit; }
+button { touch-action: manipulation; cursor: pointer; }
+input, select, textarea { font-size: 16px; } /* 16px stops iOS zooming on focus */
+
+.tnum { font-variant-numeric: tabular-nums; }
+.safe-pt { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+.safe-pb { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
