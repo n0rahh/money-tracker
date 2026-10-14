@@ -29,11 +29,12 @@ body {
   overscroll-behavior: none;
 }
 
-* { box-sizing: border-box; }
+@layer base {
+  button { touch-action: manipulation; }
+  button:not(:disabled) { cursor: pointer; }
+}
 
-button, input, select, textarea { font: inherit; }
-button { touch-action: manipulation; cursor: pointer; }
-input, select, textarea { font-size: 16px; } /* 16px stops iOS zooming on focus */
+input, select, textarea { font-size: 16px; } /* unlayered on purpose: must beat text-* utilities so iOS never zooms on focus */
 
 .tnum { font-variant-numeric: tabular-nums; }
 .safe-pt { padding-top: max(0.5rem, env(safe-area-inset-top)); }

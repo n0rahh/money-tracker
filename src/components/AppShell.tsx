@@ -13,7 +13,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh bg-bg text-text">
       <div className="mx-auto flex min-h-dvh max-w-5xl">
-        <aside className="safe-pt hidden w-56 shrink-0 flex-col border-r border-border px-4 py-6 md:flex">
+        <aside className="hidden w-56 shrink-0 flex-col border-r border-border px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-6 md:flex">
           <p className="mb-8 text-xl font-semibold tracking-tight text-accent">Money</p>
           <nav className="flex flex-1 flex-col gap-1">
             {links.map(({ to, label, icon: Icon, end }) => (
@@ -35,7 +35,7 @@ export function AppShell() {
         </aside>
 
         <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
-          <main className="safe-pt flex-1 px-4 pb-28 md:px-8 md:pb-8">
+          <main className="safe-pt flex-1 px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] md:px-8 md:pb-8">
             <div className="mx-auto w-full max-w-[640px]">
               <Outlet />
             </div>
@@ -46,7 +46,7 @@ export function AppShell() {
             aria-label="Add transaction"
             onClick={openAdd}
             className="fixed right-4 z-40 flex size-14 items-center justify-center rounded-full bg-accent text-accent-ink shadow-lg transition active:scale-95 md:hidden"
-            style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+            style={{ bottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
           >
             <Plus size={28} />
           </button>
