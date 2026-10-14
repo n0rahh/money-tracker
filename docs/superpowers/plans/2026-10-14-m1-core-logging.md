@@ -22,7 +22,7 @@
 - Touch targets ≥ 44 × 44 px everywhere (`min-h-11`/`size-11` minimum on every button, chip, swatch and icon control), keypad keys 56 px tall, every input 16 px font, `viewport-fit=cover` with safe-area padding, `prefers-reduced-motion` respected.
 - UI code never `await`s a Firestore write before updating the screen; it calls the write, attaches `.catch` → toast, and closes immediately.
 - The service worker must not intercept `/__/*` (Firebase Auth handler): `navigateFallbackDenylist: [/^\/__\//]`.
-- Production JS ≤ 250 kB gzipped (check in Task 16).
+- Production JS ≤ 350 kB gzipped (Firebase 13 auth+firestore alone are ~268 kB gzipped; Task 16 splits firebase into its own chunk; the M3 perf pass revisits).
 - Conventional commit messages; commit after every task.
 
 ## Review Focus
@@ -1568,7 +1568,7 @@ git commit -m "test: Firestore security rules against the emulator"
 - Test: `src/lib/money.test.ts`
 
 **Interfaces:**
-- Produces: `minorUnitDigits(currency: string): number`; `formatMoney(minor: number, currency: string, locale?: string | null, options?: { signed?: boolean }): string`; `parseMinor(text: string, digits: number): number | null`; `minorToDecimalString(minor: number, digits: number): string`.
+- Produces: `minorUnitDigits(currency: string): number` (static ISO 4217 table, never Intl/CLDR: the amount scale must be identical on every device); `formatMoney(minor: number, currency: string, locale?: string | null, options?: { signed?: boolean }): string`; `parseMinor(text: string, digits: number): number | null`; `minorToDecimalString(minor: number, digits: number): string`.
 
 - [ ] **Step 1: Write the failing tests** (`src/lib/money.test.ts`)
 
@@ -1582,6 +1582,19 @@ describe('minorUnitDigits', () => {
     expect(minorUnitDigits('JPY')).toBe(0)
     expect(minorUnitDigits('NOPE')).toBe(2)
   })
+  it('uses the ISO 4217 scale, not the runtime ICU data', () => {
+    expect(minorUnitDigits('HUF')).toBe(2)
+    expect(minorUnitDigits('COP')).toBe(2)
+    expect(minorUnitDigits('IQD')).toBe(3)
+    expect(minorUnitDigits('KWD')).toBe(3)
+    expect(minorUnitDigits('CLF')).toBe(4)
+  })
+  it('falls back to 2 for unknown codes and tolerates case and whitespace', () => {
+    expect(minorUnitDigits('XYZ')).toBe(2)
+    expect(minorUnitDigits('jpy')).toBe(0)
+    expect(minorUnitDigits(' pln ')).toBe(2)
+    expect(minorUnitDigits(' jpy ')).toBe(0)
+  })
 })
 
 describe('formatMoney', () => {
@@ -1594,6 +1607,10 @@ describe('formatMoney', () => {
     expect(formatMoney(250, 'USD', 'en', { signed: true })).toBe('+$2.50')
     expect(formatMoney(-250, 'USD', 'en', { signed: true })).toBe('-$2.50')
     expect(formatMoney(0, 'USD', 'en', { signed: true })).toBe('$0.00')
+  })
+  it('pins ISO digits regardless of ICU data', () => {
+    expect(formatMoney(150000, 'HUF', 'en')).toMatch(/1,500\.00$/)
+    expect(formatMoney(1234567, 'KWD', 'en')).toMatch(/1,234\.567$/)
   })
 })
 
@@ -1611,6 +1628,10 @@ describe('parseMinor', () => {
     expect(parseMinor('', 2)).toBeNull()
     expect(parseMinor('1,5', 2)).toBeNull()
     expect(parseMinor('abc', 2)).toBeNull()
+  })
+  it('rejects results beyond the safe integer range', () => {
+    expect(parseMinor('9007199254740993', 0)).toBeNull()
+    expect(parseMinor('90071992547409.93', 2)).toBeNull()
   })
 })
 
@@ -1631,14 +1652,17 @@ Run: `npx vitest run src/lib/money.test.ts` → Expected: FAIL (module not found
 - [ ] **Step 3: Write `src/lib/money.ts`**
 
 ```ts
-/** Number of minor-unit digits for an ISO 4217 code (2 for EUR, 0 for JPY). */
+const ZERO_DIGITS = new Set(['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'])
+const THREE_DIGITS = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND'])
+const FOUR_DIGITS = new Set(['CLF', 'UYW'])
+
+/** ISO 4217 minor-unit digits for a currency code (2 for EUR/PLN, 0 for JPY, 3 for KWD). Static on purpose: Intl's CLDR data differs from ISO 4217 for ~18 currencies and changes between ICU releases, and the scale must be identical on every device that reads an amount. Unknown codes fall back to 2. */
 export function minorUnitDigits(currency: string): number {
-  try {
-    const digits = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits
-    return typeof digits === 'number' ? digits : 2
-  } catch {
-    return 2
-  }
+  const code = currency.trim().toUpperCase()
+  if (ZERO_DIGITS.has(code)) return 0
+  if (THREE_DIGITS.has(code)) return 3
+  if (FOUR_DIGITS.has(code)) return 4
+  return 2
 }
 
 export function formatMoney(
@@ -1658,7 +1682,7 @@ export function formatMoney(
   }).format(value)
 }
 
-/** Exact parse of a typed decimal ("12.5") into minor units; null when invalid. No floats involved. */
+/** Exact parse of a typed decimal ("12.5") into minor units; null when invalid, when it has too many decimals, or when the result exceeds Number.MAX_SAFE_INTEGER. No floats involved. */
 export function parseMinor(text: string, digits: number): number | null {
   const match = /^(\d*)(?:\.(\d*))?$/.exec(text.trim())
   if (!match) return null
@@ -1667,7 +1691,8 @@ export function parseMinor(text: string, digits: number): number | null {
   if (intPart === '' && fracPart === '') return null
   if (fracPart.length > digits) return null
   const frac = (fracPart + '0'.repeat(digits)).slice(0, digits)
-  return Number(intPart || '0') * 10 ** digits + Number(frac || '0')
+  const minor = Number(intPart || '0') * 10 ** digits + Number(frac || '0')
+  return Number.isSafeInteger(minor) ? minor : null
 }
 
 export function minorToDecimalString(minor: number, digits: number): string {
@@ -1680,7 +1705,7 @@ export function minorToDecimalString(minor: number, digits: number): string {
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `npx vitest run src/lib/money.test.ts` → Expected: 6 tests PASS.
+Run: `npx vitest run src/lib/money.test.ts` → Expected: 10 tests PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -3879,10 +3904,24 @@ Expected: `public/` now contains `pwa-64x64.png`, `pwa-192x192.png`, `pwa-512x51
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" sizes="180x180" />
 ```
 
-- [ ] **Step 3: Build and check the bundle budget**
+- [ ] **Step 3: Split the Firebase chunk, gate the emulator hookup, build and check the bundle budget**
+
+In `vite.config.ts` add a `build` section next to `plugins` so Firebase ships as its own long-cached chunk and the 500 kB chunk warning goes away:
+```ts
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: { firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'] },
+      },
+    },
+  },
+```
+(Vite 8 runs on Rolldown; if it rejects `rollupOptions`, use the equivalent `rolldownOptions` key and note it.)
+
+In `src/lib/firebase.ts` change the emulator guard to `if (env.DEV && env.VITE_USE_EMULATORS === '1') {` so a production build can never connect to 127.0.0.1 even if `.env.local` still carries the demo values.
 
 Run: `npm run build`
-Expected: Vite prints each asset with its gzip size. Add up the `.js` gzip sizes: they must total ≤ 250 kB. If over, the usual culprit is importing all of `lucide-react` somewhere (only `CATEGORY_ICONS` and named icons are allowed) — fix and rebuild.
+Expected: no chunk-size warning; Vite prints each asset with its gzip size. The `.js` gzip sizes must total ≤ 350 kB. If over, the usual culprit is importing all of `lucide-react` somewhere (only `CATEGORY_ICONS` and named icons are allowed) — fix and rebuild.
 
 Run: `npm run preview` → open http://localhost:4173 → DevTools → Application → Manifest shows the icons; Service Workers shows `sw.js` activated; Network → set "Offline" → reload → the app still opens and shows cached data.
 
