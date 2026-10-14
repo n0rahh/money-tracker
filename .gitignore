@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dev-dist/
+.env.local
+.env.*.local
+.firebase/
+*.log
+.DS_Store
+.emulator-data/
+imports/
+.superpowers/
