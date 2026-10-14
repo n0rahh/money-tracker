@@ -1,5 +1,5 @@
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing'
-import { deleteDoc, doc, getDoc, setDoc, Timestamp, updateDoc } from 'firebase/firestore'
+import { deleteDoc, doc, getDoc, setDoc, setLogLevel, Timestamp, updateDoc } from 'firebase/firestore'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
 
@@ -7,6 +7,7 @@ const OWNER = 'vlad.herasymovychh@gmail.com'
 let env: RulesTestEnvironment
 
 beforeAll(async () => {
+  setLogLevel('silent')
   env = await initializeTestEnvironment({
     projectId: 'demo-money-tracker',
     firestore: { rules: readFileSync('firestore.rules', 'utf8'), host: '127.0.0.1', port: 8080 },
@@ -68,6 +69,17 @@ describe('transactions', () => {
     await assertSucceeds(setDoc(ref, validTx()))
     await assertFails(updateDoc(ref, { amount: -5 }))
   })
+
+  it("another verified account cannot delete the owner's transaction", async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'transactions/t1'), validTx()))
+    await assertFails(deleteDoc(doc(stranger(), 'transactions/t1')))
+  })
+
+  it('rejects an amount at or above the 10^11 cap', async () => {
+    const db = owner()
+    await assertFails(setDoc(doc(db, 'transactions/cap1'), { ...validTx(), amount: 100000000000 }))
+    await assertSucceeds(setDoc(doc(db, 'transactions/cap2'), { ...validTx(), amount: 99999999999 }))
+  })
 })
 
 describe('categories', () => {
@@ -83,12 +95,24 @@ describe('categories', () => {
   it('stranger cannot read categories', async () => {
     await assertFails(getDoc(doc(stranger(), 'categories/c1')))
   })
+  it('another verified account cannot create or update a category', async () => {
+    await assertFails(setDoc(doc(stranger(), 'categories/c1'), validCategory()))
+    await assertSucceeds(setDoc(doc(owner(), 'categories/c1'), validCategory()))
+    await assertFails(updateDoc(doc(stranger(), 'categories/c1'), { name: 'x' }))
+  })
+  it('rejects an unknown kind', async () => {
+    await assertFails(setDoc(doc(owner(), 'categories/c4'), { ...validCategory(), kind: 'transfer' }))
+  })
 })
 
 describe('settings', () => {
   it('owner can write settings/main; stranger cannot', async () => {
     await assertSucceeds(setDoc(doc(owner(), 'settings/main'), { currency: 'EUR', locale: null }))
     await assertFails(setDoc(doc(stranger(), 'settings/main'), { currency: 'USD', locale: null }))
+  })
+  it('another verified account cannot read settings/main', async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'settings/main'), { currency: 'EUR', locale: null }))
+    await assertFails(getDoc(doc(stranger(), 'settings/main')))
   })
 })
 
