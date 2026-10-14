@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email == 'vlad.herasymovychh@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+    function isKind(k) {
+      return k == 'expense' || k == 'income';
+    }
+    function isIsoDate(s) {
+      return s is string && s.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    function validCategory(d) {
+      return d.name is string && d.name.size() >= 1 && d.name.size() <= 40
+        && d.icon is string
+        && d.color is string
+        && isKind(d.kind)
+        && d.order is number
+        && d.archived is bool;
+    }
+    function validTransaction(d) {
+      return isKind(d.kind)
+        && d.amount is int && d.amount > 0 && d.amount < 100000000000
+        && d.categoryId is string && d.categoryId.size() >= 1
+        && d.note is string && d.note.size() <= 200
+        && isIsoDate(d.date)
+        && d.at is timestamp;
+    }
+
+    match /categories/{id} {
+      allow read, delete: if isOwner();
+      allow create, update: if isOwner() && validCategory(request.resource.data);
+    }
+    match /transactions/{id} {
+      allow read, delete: if isOwner();
+      allow create, update: if isOwner() && validTransaction(request.resource.data);
+    }
+    match /settings/{id} {
+      allow read, write: if isOwner();
+    }
+  }
+}
