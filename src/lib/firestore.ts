@@ -67,7 +67,7 @@ export async function seedDefaultCategories(): Promise<number> {
 export function subscribeTransactionsInRange(
   from: IsoDate,
   to: IsoDate,
-  onData: (transactions: Transaction[]) => void,
+  onData: (transactions: Transaction[], hasPendingWrites: boolean) => void,
   onError?: (e: Error) => void,
 ): Unsubscribe {
   const q = query(
@@ -77,7 +77,13 @@ export function subscribeTransactionsInRange(
     orderBy('date', 'desc'),
     orderBy('at', 'desc'),
   )
-  return onSnapshot(q, (snap) => onData(snap.docs.map((d) => mapTransaction(d.id, d.data()))), (e) => onError?.(e))
+  return onSnapshot(
+    q,
+    // includeMetadataChanges: the server acknowledging a queued write changes only the metadata, and the "Syncing…" pill must see it.
+    { includeMetadataChanges: true },
+    (snap) => onData(snap.docs.map((d) => mapTransaction(d.id, d.data())), snap.metadata.hasPendingWrites),
+    (e) => onError?.(e),
+  )
 }
 
 function transactionData(input: TransactionInput) {

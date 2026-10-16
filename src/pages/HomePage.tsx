@@ -16,7 +16,7 @@ import type { IsoMonth } from '../lib/types'
 export function HomePage() {
   const [month, setMonth] = useState<IsoMonth>(() => currentMonth())
   const { from, to } = monthRange(month)
-  const { transactions, loading, error } = useTransactions(from, to)
+  const { transactions, loading, pending, error } = useTransactions(from, to)
   const { byId } = useCategories()
   const { settings, loading: settingsLoading } = useSettings()
   const { openAdd, openEdit } = useAddSheet()
@@ -28,12 +28,23 @@ export function HomePage() {
   const breakdown = useMemo(() => totalsByCategory(transactions, 'expense'), [transactions])
   const groups = useMemo(() => groupByDay(transactions), [transactions])
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
+  const header = (
+    <>
+      <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
+      {/* Spec §11: shown while the visible month holds writes the server has not acknowledged (offline, or still in flight). */}
+      {pending ? (
+        <div className="mb-3 flex justify-center">
+          <span role="status" className="inline-flex min-h-7 items-center rounded-full bg-surface-2 px-3 text-xs text-muted">Syncing…</span>
+        </div>
+      ) : null}
+    </>
+  )
 
   if (settingsLoading) {
     // No amounts until the currency is known: a fallback symbol would flash on a cold start.
     return (
       <>
-        <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
+        {header}
         {loadingLine}
       </>
     )
@@ -41,7 +52,7 @@ export function HomePage() {
 
   return (
     <>
-      <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
+      {header}
       <SummaryCard totals={totals} currency={currency} locale={locale} />
       {error ? <p className="mt-4 text-center text-sm text-danger">{error.message}</p> : null}
       {loading ? (

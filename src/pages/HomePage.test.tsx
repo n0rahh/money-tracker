@@ -22,9 +22,10 @@ vi.mock('../hooks/useCategories', () => ({
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 
 const page = () => <AddSheetProvider><HomePage /></AddSheetProvider>
-/** Answers the newest transactions subscription with rows, or with an error. */
-const deliver = (rows: Transaction[]) => act(() => subscribeTransactionsInRange.mock.lastCall?.[2](rows))
+/** Answers the newest transactions subscription with rows (and the snapshot's hasPendingWrites), or with an error. */
+const deliver = (rows: Transaction[], hasPendingWrites = false) => act(() => subscribeTransactionsInRange.mock.lastCall?.[2](rows, hasPendingWrites))
 const fail = (e: Error) => act(() => subscribeTransactionsInRange.mock.lastCall?.[3](e))
+const withSettingsLoaded = () => useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -41,7 +42,7 @@ describe('HomePage', () => {
     expect(screen.queryByText('Spent')).not.toBeInTheDocument()
     expect(screen.queryByText(/[$€]/)).not.toBeInTheDocument()
 
-    useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null })
+    withSettingsLoaded()
     rerender(page())
     expect(screen.getByRole('button', { name: /coffee.*€3\.50/i })).toBeInTheDocument()
     fail(new Error('boom'))
@@ -58,5 +59,31 @@ describe('HomePage', () => {
     deliver([])
     expect(screen.getByText(`Nothing in ${monthLabel(addMonths(currentMonth(), -1), 'en')}`)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add your first entry' })).toBeInTheDocument()
+  })
+
+  it('shows "Syncing…" while the month holds unacknowledged writes and hides it once they are synced', () => {
+    withSettingsLoaded()
+    render(page())
+    deliver([FLAT_WHITE], true) // added offline: on screen at once, not yet on the server
+    expect(screen.getByRole('button', { name: /coffee.*€3\.50/i })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Syncing…')
+
+    deliver([FLAT_WHITE], false) // the server acknowledged it
+    expect(screen.queryByText('Syncing…')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /coffee.*€3\.50/i })).toBeInTheDocument()
+  })
+
+  it('drops "Syncing…" when the month changes or its query fails', async () => {
+    const user = userEvent.setup()
+    withSettingsLoaded()
+    render(page())
+    deliver([FLAT_WHITE], true)
+    await user.click(screen.getByRole('button', { name: 'Previous month' }))
+    expect(screen.queryByText('Syncing…')).not.toBeInTheDocument() // before the new month's first snapshot
+
+    deliver([], true)
+    expect(screen.getByText('Syncing…')).toBeInTheDocument()
+    fail(new Error('Missing or insufficient permissions.'))
+    expect(screen.queryByText('Syncing…')).not.toBeInTheDocument() // the listener is gone; nothing would clear it later
   })
 })
