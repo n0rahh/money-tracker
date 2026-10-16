@@ -62,7 +62,12 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
   const [date, setDate] = useState<IsoDate>(editing?.date ?? todayIso())
   const [note, setNote] = useState(editing?.note ?? '')
 
-  const ordered = useMemo(() => orderCategoriesByRecency(categories, recent, kind), [categories, recent, kind])
+  // An edit keeps its archived category on offer, first and marked; pickers otherwise hide archived ones (spec §6), so new entries never see it.
+  const archivedOriginal = editing ? categories.find((c) => c.id === editing.categoryId && c.archived) : undefined
+  const ordered = useMemo(() => {
+    const active = orderCategoriesByRecency(categories, recent, kind)
+    return archivedOriginal?.kind === kind ? [archivedOriginal, ...active] : active
+  }, [categories, recent, kind, archivedOriginal])
   const selected = categories.find((c) => c.id === categoryId)
   const amount = keypadMinor(keypad, digits)
   const canSave = amount > 0 && selected !== undefined && selected.kind === kind
@@ -136,7 +141,13 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
         <div role="group" className="-mx-4 overflow-x-auto px-4" aria-label="Category">
           <div className="grid grid-flow-col grid-rows-2 gap-2">
             {ordered.map((c) => (
-              <CategoryChip key={c.id} category={c} selected={c.id === categoryId} onClick={() => setCategoryId(c.id)} />
+              <CategoryChip
+                key={c.id}
+                category={c}
+                label={c.archived ? `${c.name} (archived)` : undefined}
+                selected={c.id === categoryId}
+                onClick={() => setCategoryId(c.id)}
+              />
             ))}
           </div>
         </div>

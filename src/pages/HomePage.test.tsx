@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Timestamp } from 'firebase/firestore'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,6 +8,8 @@ import type { Category, Transaction } from '../lib/types'
 import { HomePage } from './HomePage'
 
 const COFFEE: Category = { id: 'c1', name: 'Coffee', icon: 'Coffee', color: 'amber', kind: 'expense', order: 0, archived: false }
+/** Archived after its transactions were logged: it still labels them (spec §11). */
+const GYM: Category = { id: 'c2', name: 'Gym', icon: 'Dumbbell', color: 'sky', kind: 'expense', order: 1, archived: true }
 const FLAT_WHITE: Transaction = { id: 't1', kind: 'expense', amount: 350, categoryId: 'c1', note: 'flat white', date: todayIso(), at: Timestamp.now(), source: 'app' }
 
 const { subscribeTransactionsInRange, useSettings } = vi.hoisted(() => ({
@@ -17,7 +19,7 @@ const { subscribeTransactionsInRange, useSettings } = vi.hoisted(() => ({
 // The real useTransactions runs on top of this, so its reset on a month change is under test too.
 vi.mock('../lib/firestore', () => ({ subscribeTransactionsInRange }))
 vi.mock('../hooks/useCategories', () => ({
-  useCategories: () => ({ categories: [COFFEE], byId: new Map([[COFFEE.id, COFFEE]]), loading: false, error: null }),
+  useCategories: () => ({ categories: [COFFEE, GYM], byId: new Map([COFFEE, GYM].map((c) => [c.id, c])), loading: false, error: null }),
 }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 
@@ -95,6 +97,22 @@ describe('HomePage', () => {
     expect(screen.getByText('Spent').compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByText(/^Nothing in/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add your first entry' })).not.toBeInTheDocument()
+  })
+
+  it('labels an archived category by its name and a removed one as "Uncategorized", in the breakdown and the list', () => {
+    withSettingsLoaded()
+    render(page())
+    deliver([
+      { ...FLAT_WHITE, id: 't2', categoryId: GYM.id, amount: 4000, note: 'monthly pass' },
+      { ...FLAT_WHITE, id: 't3', categoryId: 'removed-in-console', amount: 1200, note: '' },
+    ])
+    const breakdown = within(screen.getByRole('heading', { name: 'By category' }).closest('section') as HTMLElement)
+    expect(breakdown.getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+      expect.stringMatching(/^Gym€40\.00/),
+      expect.stringMatching(/^Uncategorized€12\.00/),
+    ])
+    expect(screen.getByRole('button', { name: /^Gym.*monthly pass.*€40\.00$/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Uncategorized.*€12\.00$/ })).toBeInTheDocument()
   })
 
   it('reaches future months, so an entry saved with a wrong date can be found', async () => {

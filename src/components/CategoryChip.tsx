@@ -2,9 +2,15 @@ import { CATEGORY_COLORS, colorTint } from '../lib/categoryColors'
 import { CATEGORY_ICONS } from '../lib/categoryIcons'
 import type { Category } from '../lib/types'
 
-type ChipProps = { category: Category; selected?: boolean; onClick?: () => void }
+type ChipProps = {
+  category: Category
+  selected?: boolean
+  onClick?: () => void
+  /** Visible text when it should differ from the category name. */
+  label?: string
+}
 
-export function CategoryChip({ category, selected = false, onClick }: ChipProps) {
+export function CategoryChip({ category, selected = false, onClick, label }: ChipProps) {
   const Icon = CATEGORY_ICONS[category.icon]
   const color = CATEGORY_COLORS[category.color]
   return (
@@ -16,7 +22,7 @@ export function CategoryChip({ category, selected = false, onClick }: ChipProps)
       style={selected ? { background: color, borderColor: color, color: '#0a0a0d' } : { background: colorTint(color), borderColor: 'transparent', color }}
     >
       <Icon size={18} />
-      <span className="whitespace-nowrap">{category.name}</span>
+      <span className="whitespace-nowrap">{label ?? category.name}</span>
     </button>
   )
 }
