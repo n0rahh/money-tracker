@@ -5,6 +5,7 @@ export type KeypadState = { expr: string }
 
 export const EMPTY_KEYPAD: KeypadState = { expr: '' }
 const MAX_INT_DIGITS = 9
+const MAX_EXPR_LENGTH = 24 // longest expression the keypad accepts
 const MAX_MINOR = 99_999_999_999 // rules require amount < 100000000000
 
 function currentTerm(expr: string): string {
@@ -24,6 +25,7 @@ export function pressKey(state: KeypadState, key: KeypadKey, digits = 2): Keypad
     const minor = keypadMinor(state, digits)
     return { expr: minor === 0 ? '' : trimZeros(minorToDecimalString(minor, digits)) }
   }
+  if (expr.length >= MAX_EXPR_LENGTH) return state
 
   const term = currentTerm(expr)
   if (key === '+' || key === '-') {

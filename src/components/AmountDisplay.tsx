@@ -11,17 +11,20 @@ export function AmountDisplay({ state, currency, locale, kind }: Props) {
   const digits = minorUnitDigits(currency)
   const minor = keypadMinor(state, digits)
   const expr = state.expr === '' ? '0' : state.expr.replace(/\+/g, ' + ').replace(/-/g, ' − ')
-  // Steps down by displayed length (operator spaces included) so typical long expressions fit; extremely long ones still overflow and are clipped.
+  // Steps down by displayed length (operator spaces included); several operators in a 24-character expression can still overflow, and that is clipped.
   const size = expr.length > 18 ? 'sm' : expr.length > 11 ? 'md' : 'lg'
   return (
     <div className="py-2 text-center">
-      <div
-        data-testid="amount-expr"
-        data-size={size}
-        aria-live="polite"
-        className={`tnum overflow-hidden whitespace-nowrap font-semibold leading-tight ${SIZE_CLASS[size]} ${kind === 'income' ? 'text-accent' : 'text-text'}`}
-      >
-        {expr}
+      {/* Fixed at the lg line height (50px) so stepping the size never moves what is below. */}
+      <div className="flex h-[50px] items-center justify-center">
+        <div
+          data-testid="amount-expr"
+          data-size={size}
+          aria-live="polite"
+          className={`tnum overflow-hidden whitespace-nowrap font-semibold leading-tight ${SIZE_CLASS[size]} ${kind === 'income' ? 'text-accent' : 'text-text'}`}
+        >
+          {expr}
+        </div>
       </div>
       <div data-testid="amount-total" className="tnum mt-1 text-sm text-muted">
         {hasOperator(state) ? '= ' : ''}

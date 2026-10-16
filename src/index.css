@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/inter';
 
 @theme {
   --color-bg: #0a0a0d;
@@ -12,7 +12,7 @@
   --color-accent-ink: #0a0a0d;
   --color-expense: #ff6b7a;
   --color-danger: #ff5c5c;
-  --font-sans: 'DM Sans Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --radius-card: 20px;
   --radius-chip: 14px;
 }

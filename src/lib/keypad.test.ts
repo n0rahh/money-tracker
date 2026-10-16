@@ -17,6 +17,20 @@ describe('pressKey', () => {
   it('replaces an operator with another operator', () => expect(press('5+-3').expr).toBe('5-3'))
   it('drops a dangling decimal point before an operator', () => expect(press('5.+3').expr).toBe('5+3'))
   it('caps integer digits at 9', () => expect(press('1234567890').expr).toBe('123456789'))
+  it('ignores input once the expression reaches 24 characters', () => {
+    const capped = press('123456789.12+123456789.1')
+    expect(capped.expr).toHaveLength(24)
+    expect(pressKey(capped, '2').expr).toBe(capped.expr)
+    expect(pressKey(capped, 'back').expr).toBe('123456789.12+123456789.')
+    expect(keypadMinor(capped)).toBe(24_691_357_822)
+  })
+  it('ignores a decimal point and operators at the cap too, while equals and clear still work', () => {
+    const capped = press('123456789.12+123456789+1')
+    expect(capped.expr).toHaveLength(24)
+    for (const key of ['.', '+', '-', '5'] as const) expect(pressKey(capped, key).expr).toBe(capped.expr)
+    expect(pressKey(capped, 'equals').expr).toBe('246913579.12')
+    expect(pressKey(capped, 'clear')).toEqual(EMPTY_KEYPAD)
+  })
   it('backspace removes the last character', () => expect(pressKey(press('12+'), 'back').expr).toBe('12'))
   it('clear empties the expression', () => expect(pressKey(press('12'), 'clear')).toEqual(EMPTY_KEYPAD))
   it('equals collapses the expression to its value', () => {
