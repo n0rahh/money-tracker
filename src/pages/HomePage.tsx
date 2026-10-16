@@ -47,12 +47,11 @@ export function HomePage() {
   const header = (
     <>
       <MonthSwitcher month={month} locale={locale} onChange={changeMonth} />
-      {/* Spec §11: shown while the visible month holds writes the server has not acknowledged (offline, or still in flight). */}
-      {pending ? (
-        <div className="mb-3 flex justify-center">
-          <span role="status" className="inline-flex min-h-7 items-center rounded-full bg-surface-2 px-3 text-xs text-muted">Syncing…</span>
-        </div>
-      ) : null}
+      {/* Always rendered at a fixed height, so the pill coming and going never moves the content below. Spec §11: the pill
+          shows while the visible month holds writes the server has not acknowledged (offline, or still in flight). */}
+      <div className="flex h-7 items-center">
+        {pending ? <span role="status" className="inline-flex min-h-7 items-center rounded-full bg-surface-2 px-3 text-xs text-muted">Syncing…</span> : null}
+      </div>
     </>
   )
 
