@@ -1,13 +1,13 @@
 # Money Tracker — Design Spec
 
 Date: 2026-10-14
-Status: draft for Vlad's review (assumptions are marked; see §15 for the questions)
+Status: Milestone 1 implemented (branch feat/m1-core-logging, 2026-10-17); decisions in §15
 
 ## 1. Summary
 
 A personal income/expense tracker that lives on the iPhone home screen as a web app, with a dark, fast, keypad-first UI. Hosted on Firebase Hosting, data in Firestore, Google sign-in locked to one email. No App Store, no backend servers, $0/month on the Firebase Spark plan. Apple Watch and Siri entry come from an Apple Shortcut that writes to Firestore directly.
 
-The stack and project shape mirror your existing `n0rahh/food-tracker` repo (React 19 + Vite + TypeScript + Tailwind v4 + Firebase 12 + vite-plugin-pwa), so everything you already know about that project carries over.
+The stack and project shape mirror your existing `n0rahh/food-tracker` repo (React 19 + Vite 8 + TypeScript + Tailwind v4 + Firebase 13 + vite-plugin-pwa), so everything you already know about that project carries over.
 
 ## 2. What you asked for, and what I assumed
 
@@ -60,8 +60,8 @@ So: web app first; the watch gets a Shortcut, not an app. If you ever want a rea
 
 ```
 iPhone home-screen web app / desktop browser
-  React 19 + TypeScript + Vite + Tailwind v4 (static bundle, precached by a service worker)
-       │  Firebase JS SDK v12 (Auth + Firestore with persistent local cache)
+  React 19 + TypeScript + Vite 8 + Tailwind v4 (static bundle, precached by a service worker)
+       │  Firebase JS SDK v13 (Auth + Firestore with persistent local cache)
        ▼
 Firebase project "money-tracker-vlad" (Spark plan)
   ├─ Hosting      https://money-tracker-vlad.web.app   (serves the bundle + /__/auth/ handler)
@@ -171,14 +171,14 @@ One composite index on `transactions`: `date DESC, at DESC` (and the ASC twin), 
 
 ### Navigation
 
-Bottom tab bar (iOS style, respects the home-indicator safe area) with a large centered **+** button that opens the Add sheet from anywhere.
+Bottom tab bar (iOS style, respects the home-indicator safe area) with a floating lime **+** button at the bottom right (thumb reach) that opens the Add sheet from anywhere.
 
 - **Home** (month view) · **Trends** (M2) · **Categories** · **Settings**
 - Desktop (≥ 768 px): the same tabs as a left sidebar, content max-width 640 px.
 
 ### Home — the month at a glance
 
-- Header: `‹  October 2026  ›` (swipe or tap arrows; tap the label for a month/year picker in M3).
+- Header: `‹  October 2026  ›` (tap arrows; future months are reachable so a mis-dated entry can be found; tap the label for a month/year picker in M3). When the installed app is resumed in a new calendar month, Home follows it automatically.
 - **Summary card**: Spent (hero number), Income, Net. Under it, the pace line (M2): "€1,240 by day 14 · last month by day 14 €1,410 · −12%".
 - **Daily strip** (M2): 28–31 tiny bars, today highlighted; tap a bar to jump to that day in the list.
 - **Category breakdown**: rows sorted by amount: color dot + icon, name, amount, share bar, and Δ vs. last month (M2). Tap → category detail (M2).
@@ -299,21 +299,21 @@ Each milestone ships a usable app and gets its own implementation plan. Mileston
 | **M0 — Setup** (≈ 20 min, manual) | Auth spike done (popup works in the installed food-tracker). Create Firebase project `money-tracker-vlad` (Spark; Firestore Standard/Native, region `eur3`; Google provider; Hosting). Until then the app runs on the emulators. | The project exists; rules deployed. |
 | **M1 — Core logging** (≈ 1 weekend) | Scaffold, theme, auth, rules + rules tests, categories (seed + manage), add/edit/delete with keypad, Home month view with breakdown and day-grouped list, month switcher, currency first-run, PWA manifest/icons/service worker, deploy, device checklist. | On the iPhone home screen: add an expense in under 5 s; works offline and syncs; only your account works. |
 | **M2 — Insights** (≈ 2 evenings) | Trends tab (monthly bars, range chips, category filter, table), Compare A vs. B, category detail, pace line and Δ on Home, daily strip, suggestion chips. | "Was this month more expensive than last, and why?" is answered in two taps. |
-| **M3 — Power features** (≈ 2 evenings) | Budgets with progress, recurring transactions, search/filter of the month list on Home, month/year picker, export JSON/CSV, import CSV, undo toast on delete, bundle/perf pass (lazy routes, < 250 kB gzipped JS). | Monthly bills appear by themselves; old data imported; backup is one tap. |
+| **M3 — Power features** (≈ 2 evenings) | Budgets with progress, recurring transactions, search/filter of the month list on Home, month/year picker, export JSON/CSV, import CSV, undo toast on delete, bundle/perf pass (lazy routes; Firebase alone is ~189 kB gzipped, so the realistic target is ≤ 320 kB total). | Monthly bills appear by themselves; old data imported; backup is one tap. |
 | **M4 — Siri & Apple Watch** (≈ 1 evening) | Link an email/password credential for REST, Settings page recipe, Shortcut "Add expense" that signs in and POSTs to Firestore, `source: "shortcut"`, watch complication and Siri phrase, test from the watch with the phone away. | "Hey Siri, add expense" on the watch creates a transaction that appears in the app within seconds. |
 
 Stretch ideas, deliberately out of scope until the above exists: accounts and transfers, multi-currency with rates, receipt photos (needs Blaze for Storage), a weekly push summary (needs a sender; doable for free from a GitHub Actions cron + FCM, but YAGNI), shared use with a second person.
 
 ## 11. Error handling and edge cases
 
-- **Offline writes**: Firestore queues them; the UI shows the entry immediately. A small "Syncing…" pill appears while `hasPendingWrites` is true for the visible query, and disappears on sync. No blocking spinners on add.
-- **Quota exhausted** (practically impossible, but on Spark the service stops instead of billing): reads fail with `resource-exhausted`; the shell shows a banner "Firebase quota reached, data will refresh after midnight PT" and keeps cached data usable.
+- **Offline writes**: Firestore queues them; the UI shows the entry immediately. A small "Syncing…" pill appears under the month header while `hasPendingWrites` is true for the visible month (the row's space is reserved so nothing jumps), and disappears on sync. No blocking spinners on add.
+- **Quota exhausted** (practically impossible, but on Spark the service stops instead of billing): reads fail with `resource-exhausted`; M1 shows the raw error under the summary card; a friendlier banner ("Firebase quota reached, data will refresh after midnight PT") is deferred to M2.
 - **Wrong Google account**: immediate sign-out with "This app only accepts vlad.herasymovychh@gmail.com".
 - **Deleted/archived category on an old transaction**: rows render with the stored category name if the category document still exists (archived) or "Uncategorized" in slate if it was removed by hand in the console.
 - **Time zones and travel**: `date` is computed on the device at entry time; a transaction stays on the day you logged it. Month boundaries never shift retroactively.
 - **Double submit**: Save is disabled while the write is in flight; the sheet closes on local acknowledgement, not on server confirmation.
 - **Keypad input**: expressions never produce negative totals; `10 − 15` evaluates to 0 and Save stays disabled.
-- **Currency change**: a confirm dialog explains that amounts are not converted.
+- **Currency change**: the sheet note says amounts are not converted; a confirm dialog appears only when the new currency has a different number of decimals, because stored minor units are then read at a different scale (12.50 → ¥1,250).
 - **Service-worker update**: `autoUpdate` reloads to the new version on the next launch; no in-app prompt.
 
 ## 12. Testing strategy
@@ -379,7 +379,7 @@ The same shortcut runs from Siri on the watch or phone, from a watch-face compli
 
 - **Precomputed monthly summary documents** (totals per category updated in a batch with each write): fewer reads for Trends, but every edit must adjust two months' summaries and drift is possible. Not needed at this data volume; can be added behind the same `stats` functions later.
 - **Firestore aggregation queries** (`sum`): cheap, but they do not work offline and would need one query per category per month. Client-side reduce is simpler and offline.
-- **Svelte/SvelteKit** for a smaller bundle: real gain of maybe 30 kB, at the cost of leaving the stack you know. React is fine here; the budget is set at 250 kB gzipped.
+- **Svelte/SvelteKit** for a smaller bundle: real gain of maybe 30 kB, at the cost of leaving the stack you know. React is fine here; the budget is 350 kB gzipped (M1 ships at ~295 kB).
 - **Chart library (Recharts/Chart.js)**: 40–100 kB for two chart types. Hand-written SVG bars and a share bar are under 150 lines.
 - **Email magic link** sign-in: the link opens in Safari, not in the home-screen app, so the session would land in the wrong context. Rejected.
 - **Capacitor wrapper** to reach the App Store/TestFlight: solves OAuth web-view issues but brings back the $99/year and Xcode. Rejected for the same reason as native.
