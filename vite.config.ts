@@ -35,15 +35,28 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globIgnores: ['**/inter-{cyrillic,cyrillic-ext,greek,greek-ext,vietnamese}-*.woff2'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/__\//],
       },
     }),
   ],
+  build: {
+    // The Firebase chunk alone is ~636 kB minified (~189 kB gzipped), so the default 500 kB limit would always warn.
+    // The budget that matters is the gzipped JS total (350 kB); 700 still flags an unsplit bundle.
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      output: {
+        // Rolldown has no object-form `manualChunks`; this group is its equivalent: all Firebase packages in one long-cached chunk.
+        codeSplitting: { groups: [{ name: 'firebase', test: /node_modules[\\/](?:@firebase|firebase)[\\/]/ }] },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    experimental: { diagnostics: false },
   },
 })

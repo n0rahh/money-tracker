@@ -32,7 +32,9 @@ if (isFirebaseConfigured) {
   dbInstance = initializeFirestore(app, {
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   })
-  if (env.VITE_USE_EMULATORS === '1') {
+  // Literal `import.meta.env.DEV` so Vite folds it to `false` and drops the emulator hookup from production bundles
+  // (reading it through the `env` alias would only be checked at runtime and keep the 127.0.0.1 code shipped).
+  if (import.meta.env.DEV && env.VITE_USE_EMULATORS === '1') {
     connectAuthEmulator(authInstance, 'http://127.0.0.1:9099', { disableWarnings: true })
     connectFirestoreEmulator(dbInstance, '127.0.0.1', 8080)
   }
