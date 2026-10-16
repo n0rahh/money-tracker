@@ -30,7 +30,7 @@ Device: iPhone, iOS 26+, Safari. URL: https://money-tracker-vlad.web.app
 
 ## Behaviour
 - [ ] Add an expense: +, "12.5", "+", "3", category, Save → the sheet closes at once; Home shows 15.50 in the selected currency under the right category.
-- [ ] Airplane mode on → add another expense → it appears in the list with a "Syncing…" pill under the month → airplane mode off → the pill goes away and within seconds Firebase Console shows the document.
+- [ ] Airplane mode on → add another expense → it appears in the list and a "Syncing…" badge shows in the summary card's corner → airplane mode off → the badge goes away and within seconds Firebase Console shows the document.
 - [ ] Cold start offline: launch the installed app once online and wait a few seconds (the service worker installs inside the standalone context), force-quit, turn airplane mode on, launch → Home opens with the cached month, no browser error page; opening /categories offline works too.
 - [ ] Edit a transaction's amount and date; delete one (confirm dialog appears).
 - [ ] Switch to last month and back; the empty state shows for an empty month.

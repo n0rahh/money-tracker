@@ -44,22 +44,12 @@ export function HomePage() {
   const breakdown = useMemo(() => totalsByCategory(transactions, 'expense'), [transactions])
   const groups = useMemo(() => groupByDay(transactions), [transactions])
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
-  const header = (
-    <>
-      <MonthSwitcher month={month} locale={locale} onChange={changeMonth} />
-      {/* Always rendered at a fixed height, so the pill coming and going never moves the content below. Spec §11: the pill
-          shows while the visible month holds writes the server has not acknowledged (offline, or still in flight). */}
-      <div className="flex h-7 items-center">
-        {pending ? <span role="status" className="inline-flex min-h-7 items-center rounded-full bg-surface-2 px-3 text-xs text-muted">Syncing…</span> : null}
-      </div>
-    </>
-  )
 
   if (settingsLoading) {
     // No amounts until the currency is known: a fallback symbol would flash on a cold start.
     return (
       <>
-        {header}
+        <MonthSwitcher month={month} locale={locale} onChange={changeMonth} />
         {loadingLine}
       </>
     )
@@ -67,8 +57,8 @@ export function HomePage() {
 
   return (
     <>
-      {header}
-      <SummaryCard totals={totals} currency={currency} locale={locale} />
+      <MonthSwitcher month={month} locale={locale} onChange={changeMonth} />
+      <SummaryCard totals={totals} currency={currency} locale={locale} syncing={pending} />
       {error ? <p className="mt-4 text-center text-sm text-danger">{error.message}</p> : null}
       {loading ? (
         loadingLine

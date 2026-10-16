@@ -69,6 +69,7 @@ describe('HomePage', () => {
     deliver([FLAT_WHITE], true) // added offline: on screen at once, not yet on the server
     expect(screen.getByRole('button', { name: /coffee.*€3\.50/i })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Syncing…')
+    expect(screen.getByText('Spent').closest('section')).toContainElement(screen.getByRole('status')) // a badge on the summary card
 
     deliver([FLAT_WHITE], false) // the server acknowledged it
     expect(screen.queryByText('Syncing…')).not.toBeInTheDocument()
