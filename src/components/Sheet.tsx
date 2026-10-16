@@ -12,12 +12,14 @@ type Props = {
   headerRight?: ReactNode
   /** When false, no close button and the backdrop does not close (first-run flows). */
   dismissible?: boolean
+  /** Extra classes for the scrolling body, e.g. scroll padding under a sticky block. */
+  bodyClassName?: string
 }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function Sheet({ open, title, onClose, children, footer, full = false, headerRight, dismissible = true }: Props) {
+export function Sheet({ open, title, onClose, children, footer, full = false, headerRight, dismissible = true, bodyClassName = '' }: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
 
@@ -100,7 +102,7 @@ export function Sheet({ open, title, onClose, children, footer, full = false, he
             ) : null}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-4 pb-4">{children}</div>
+        <div className={`flex-1 overflow-y-auto px-4 pb-4 ${bodyClassName}`}>{children}</div>
         {footer ? <div className="safe-pb border-t border-border px-4 pt-3">{footer}</div> : null}
       </div>
     </div>

@@ -84,6 +84,8 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       full
       title={editing ? 'Edit' : 'Add'}
       onClose={onClose}
+      // sticky amount block (162 px) + 8 px, so a focused field is never scrolled in behind it; no block to clear once it is static
+      bodyClassName="scroll-pt-[170px] short:scroll-pt-0"
       headerRight={
         editing ? (
           <button type="button" aria-label="Delete" onClick={remove} className="flex size-11 items-center justify-center rounded-full bg-danger/15 text-danger">
@@ -101,8 +103,8 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       }
     >
       <div className="flex flex-col gap-3">
-        {/* Stays in view while the date, note and categories scroll beneath it. */}
-        <div className="sticky top-0 z-10 -mx-4 bg-surface px-4 pb-2 flex flex-col gap-3">
+        {/* Stays in view while the date, note and categories scroll beneath it; below 700 px of height it scrolls with them so the chips stay reachable. */}
+        <div className="sticky top-0 z-10 -mx-4 bg-surface px-4 pb-2 flex flex-col gap-3 short:static">
           <SegmentedControl ariaLabel="Kind" value={kind} onChange={setKind} options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
           <AmountDisplay state={keypad} currency={currency} locale={locale} kind={kind} />
         </div>

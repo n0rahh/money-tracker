@@ -22,6 +22,11 @@ describe('Sheet', () => {
     expect(document.activeElement).toBe(dialog)
   })
 
+  it('applies bodyClassName to the scroll container', () => {
+    render(<Sheet open title="Title" onClose={() => {}} bodyClassName="scroll-pt-44">Body</Sheet>)
+    expect(screen.getByText('Body')).toHaveClass('scroll-pt-44')
+  })
+
   describe('dismissible (default)', () => {
     it('the Close button calls onClose', async () => {
       const user = userEvent.setup()

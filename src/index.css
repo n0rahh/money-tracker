@@ -17,6 +17,8 @@
   --radius-chip: 14px;
 }
 
+@custom-variant short (@media (max-height: 700px));
+
 html, body, #root { height: 100%; }
 
 body {
