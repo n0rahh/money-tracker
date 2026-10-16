@@ -2578,6 +2578,9 @@ export function useTransactions(from: IsoDate, to: IsoDate) {
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
+    // A new range starts clean: the previous range's rows and error must not show under it.
+    setTransactions([])
+    setError(null)
     setLoading(true)
     return subscribeTransactionsInRange(
       from,
@@ -3327,7 +3330,7 @@ git commit -m "feat: add/edit transaction sheet with keypad, categories and date
 ### Task 13: Home page (month view) and first-run currency setup
 
 **Files:**
-- Create: `src/lib/currencies.ts`, `src/lib/currencies.test.ts`, `src/components/CurrencySheet.tsx`, `src/components/FirstRunGate.tsx`, `src/components/MonthSwitcher.tsx`, `src/components/SummaryCard.tsx`, `src/components/BreakdownList.tsx`, `src/components/TransactionList.tsx`, `src/components/EmptyState.tsx`
+- Create: `src/lib/currencies.ts`, `src/lib/currencies.test.ts`, `src/components/CurrencySheet.tsx`, `src/components/FirstRunGate.tsx`, `src/components/FirstRunGate.test.tsx`, `src/pages/HomePage.test.tsx`, `src/components/MonthSwitcher.tsx`, `src/components/SummaryCard.tsx`, `src/components/BreakdownList.tsx`, `src/components/TransactionList.tsx`, `src/components/EmptyState.tsx`
 - Replace: `src/pages/HomePage.tsx`
 - Modify: `src/components/AppShell.tsx` (render `FirstRunGate`)
 
@@ -3457,6 +3460,7 @@ export function CurrencySheet({ open, current, onSelect, onClose, dismissible = 
 
 `src/components/FirstRunGate.tsx`:
 ```tsx
+import { useRef } from 'react'
 import { useToast } from '../context/ToastContext'
 import { useSettings } from '../hooks/useSettings'
 import { saveSettings, seedDefaultCategories } from '../lib/firestore'
@@ -3466,6 +3470,8 @@ import { CurrencySheet } from './CurrencySheet'
 export function FirstRunGate() {
   const { settings, loading, fromCache } = useSettings()
   const { showToast } = useToast()
+  // The sheet only goes away once the settings snapshot arrives; a second tap before that must not seed twice.
+  const chosen = useRef(false)
   if (loading || fromCache || settings !== null) return null
   return (
     <CurrencySheet
@@ -3475,6 +3481,8 @@ export function FirstRunGate() {
       title="Welcome! Pick your currency"
       note="All amounts are shown in this currency. You can change it later in Settings."
       onSelect={(code) => {
+        if (chosen.current) return
+        chosen.current = true
         saveSettings({ currency: code, locale: null }).catch((e: unknown) => showToast(e instanceof Error ? e.message : 'Could not save settings'))
         seedDefaultCategories()
           .then((n) => {
@@ -3674,25 +3682,39 @@ export function HomePage() {
   const { from, to } = monthRange(month)
   const { transactions, loading, error } = useTransactions(from, to)
   const { byId } = useCategories()
-  const { settings } = useSettings()
+  const { settings, loading: settingsLoading } = useSettings()
   const { openAdd, openEdit } = useAddSheet()
 
+  // The fallback only applies to a genuinely missing settings document (first run), never while it loads.
   const currency = settings?.currency ?? 'USD'
   const locale = settings?.locale ?? null
   const totals = useMemo(() => totalsByKind(transactions), [transactions])
   const breakdown = useMemo(() => totalsByCategory(transactions, 'expense'), [transactions])
   const groups = useMemo(() => groupByDay(transactions), [transactions])
+  const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
+
+  if (settingsLoading) {
+    // No amounts until the currency is known: a fallback symbol would flash on a cold start.
+    return (
+      <>
+        <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
+        {loadingLine}
+      </>
+    )
+  }
 
   return (
     <>
       <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
       <SummaryCard totals={totals} currency={currency} locale={locale} />
       {error ? <p className="mt-4 text-center text-sm text-danger">{error.message}</p> : null}
-      {!loading && transactions.length === 0 ? (
+      {loading ? (
+        loadingLine
+      ) : transactions.length === 0 ? (
         <EmptyState
           title={`Nothing in ${monthLabel(month, locale)}`}
           body="Add your first expense with the + button."
-          action={<Button onClick={openAdd}>Add expense</Button>}
+          action={<Button onClick={openAdd}>Add your first entry</Button>}
         />
       ) : (
         <>
