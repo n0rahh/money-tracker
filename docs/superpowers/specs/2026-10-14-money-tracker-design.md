@@ -221,7 +221,7 @@ Tap count for a normal expense: + → digits → category → Save.
 - Export JSON / CSV (M3), Import CSV (M3, for migrating from your current app).
 - "Siri & Apple Watch quick add" (M4): set a quick-add password, shows the Shortcut recipe.
 - Install hint when not running standalone on iOS: "Share → Add to Home Screen".
-- Sign out, app version, link to the repo.
+- Sign out, app version.
 
 ### First run
 
