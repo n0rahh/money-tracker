@@ -8,6 +8,9 @@ export function useTransactions(from: IsoDate, to: IsoDate) {
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
+    // A new range starts clean: the previous range's rows and error must not show under it.
+    setTransactions([])
+    setError(null)
     setLoading(true)
     return subscribeTransactionsInRange(
       from,

@@ -18,25 +18,39 @@ export function HomePage() {
   const { from, to } = monthRange(month)
   const { transactions, loading, error } = useTransactions(from, to)
   const { byId } = useCategories()
-  const { settings } = useSettings()
+  const { settings, loading: settingsLoading } = useSettings()
   const { openAdd, openEdit } = useAddSheet()
 
+  // The fallback only applies to a genuinely missing settings document (first run), never while it loads.
   const currency = settings?.currency ?? 'USD'
   const locale = settings?.locale ?? null
   const totals = useMemo(() => totalsByKind(transactions), [transactions])
   const breakdown = useMemo(() => totalsByCategory(transactions, 'expense'), [transactions])
   const groups = useMemo(() => groupByDay(transactions), [transactions])
+  const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
+
+  if (settingsLoading) {
+    // No amounts until the currency is known: a fallback symbol would flash on a cold start.
+    return (
+      <>
+        <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
+        {loadingLine}
+      </>
+    )
+  }
 
   return (
     <>
       <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
       <SummaryCard totals={totals} currency={currency} locale={locale} />
       {error ? <p className="mt-4 text-center text-sm text-danger">{error.message}</p> : null}
-      {!loading && transactions.length === 0 ? (
+      {loading ? (
+        loadingLine
+      ) : transactions.length === 0 ? (
         <EmptyState
           title={`Nothing in ${monthLabel(month, locale)}`}
           body="Add your first expense with the + button."
-          action={<Button onClick={openAdd}>Add expense</Button>}
+          action={<Button onClick={openAdd}>Add your first entry</Button>}
         />
       ) : (
         <>
