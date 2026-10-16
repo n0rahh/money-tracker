@@ -42,7 +42,7 @@ export default defineConfig({
     }),
   ],
   build: {
-    // The Firebase chunk alone is ~636 kB minified (~189 kB gzipped), so the default 500 kB limit would always warn.
+    // The Firebase chunk alone is ~630 kB minified (~189 kB gzipped), so the default 500 kB limit would always warn.
     // The budget that matters is the gzipped JS total (350 kB); 700 still flags an unsplit bundle.
     chunkSizeWarningLimit: 700,
     rolldownOptions: {
@@ -57,6 +57,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    // silences Vitest's end-of-run performance hints (Isolate/environment); they are not test output
     experimental: { diagnostics: false },
   },
 })
