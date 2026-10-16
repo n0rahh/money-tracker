@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Timestamp } from 'firebase/firestore'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSheetProvider } from '../context/AddSheetContext'
 import { addMonths, currentMonth, monthLabel, monthRange, todayIso } from '../lib/dates'
 import type { Category, Transaction } from '../lib/types'
@@ -85,5 +85,85 @@ describe('HomePage', () => {
     expect(screen.getByText('Syncing…')).toBeInTheDocument()
     fail(new Error('Missing or insufficient permissions.'))
     expect(screen.queryByText('Syncing…')).not.toBeInTheDocument() // the listener is gone; nothing would clear it later
+  })
+
+  it('shows a failed month query as its error alone under the summary, not as an empty month', () => {
+    withSettingsLoaded()
+    render(page())
+    fail(new Error('Missing or insufficient permissions.'))
+    const message = screen.getByText('Missing or insufficient permissions.')
+    expect(screen.getByText('Spent').compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText(/^Nothing in/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add your first entry' })).not.toBeInTheDocument()
+  })
+
+  it('reaches future months, so an entry saved with a wrong date can be found', async () => {
+    const user = userEvent.setup()
+    withSettingsLoaded()
+    render(page())
+    const next = screen.getByRole('button', { name: 'Next month' })
+    expect(next).toBeEnabled()
+    await user.click(next)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(monthLabel(addMonths(currentMonth(), 1), 'en'))
+    const future = monthRange(addMonths(currentMonth(), 1))
+    expect(subscribeTransactionsInRange).toHaveBeenLastCalledWith(future.from, future.to, expect.any(Function), expect.any(Function))
+  })
+
+  describe('on a return to the foreground', () => {
+    const heading = () => screen.getByRole('heading', { level: 1 })
+    /** The phone sat locked: the clock moves on, then the page turns visible again. */
+    const resumeAt = (now: Date) => {
+      vi.setSystemTime(now)
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+    }
+
+    beforeEach(() => {
+      // Only the clock: Testing Library's async wrapper (behind userEvent) waits on a real setTimeout that faked timers would freeze.
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(2026, 9, 31, 23, 0))
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+      withSettingsLoaded()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.restoreAllMocks() // the visibilityState spy
+    })
+
+    it('follows the calendar into the new month while the current month is shown', () => {
+      render(page())
+      expect(heading()).toHaveTextContent('October 2026')
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('November 2026')
+      expect(subscribeTransactionsInRange).toHaveBeenLastCalledWith('2026-11-01', '2026-11-30', expect.any(Function), expect.any(Function))
+    })
+
+    it('stays on a month picked on purpose', async () => {
+      const user = userEvent.setup()
+      render(page())
+      await user.click(screen.getByRole('button', { name: 'Previous month' }))
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('September 2026')
+    })
+
+    it('follows again once the current month is picked again', async () => {
+      const user = userEvent.setup()
+      render(page())
+      await user.click(screen.getByRole('button', { name: 'Previous month' }))
+      await user.click(screen.getByRole('button', { name: 'Next month' }))
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('November 2026')
+    })
+
+    it('moves "Today" and "Yesterday" on after midnight', () => {
+      vi.setSystemTime(new Date(2026, 9, 15, 23, 0))
+      render(page())
+      deliver([{ ...FLAT_WHITE, date: '2026-10-15' }])
+      expect(screen.getByRole('heading', { name: 'Today' })).toBeInTheDocument()
+      resumeAt(new Date(2026, 9, 16, 9, 0))
+      expect(screen.getByRole('heading', { name: 'Yesterday' })).toBeInTheDocument()
+    })
   })
 })

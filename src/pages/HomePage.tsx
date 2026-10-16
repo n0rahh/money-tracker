@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BreakdownList } from '../components/BreakdownList'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
@@ -9,17 +9,32 @@ import { useAddSheet } from '../context/AddSheetContext'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
+import { useVisibilityTick } from '../hooks/useVisibilityTick'
 import { currentMonth, monthLabel, monthRange, todayIso } from '../lib/dates'
 import { groupByDay, totalsByCategory, totalsByKind } from '../lib/stats'
 import type { IsoMonth } from '../lib/types'
 
 export function HomePage() {
+  const tick = useVisibilityTick()
   const [month, setMonth] = useState<IsoMonth>(() => currentMonth())
+  // True while the shown month was the current month when it was picked: Home then follows the calendar
+  // (31 Oct → 1 Nov) when the app comes back to the foreground; a month picked on purpose stays put.
+  const followCurrent = useRef(true)
+  useEffect(() => {
+    if (followCurrent.current) setMonth(currentMonth()) // a no-op unless the month has turned
+  }, [tick])
+  // Recomputed on each return to the foreground, so "Today" and "Yesterday" move on after midnight.
+  const today = useMemo(() => todayIso(), [tick])
   const { from, to } = monthRange(month)
   const { transactions, loading, pending, error } = useTransactions(from, to)
   const { byId } = useCategories()
   const { settings, loading: settingsLoading } = useSettings()
   const { openAdd, openEdit } = useAddSheet()
+
+  function changeMonth(next: IsoMonth) {
+    followCurrent.current = next === currentMonth()
+    setMonth(next)
+  }
 
   // The fallback only applies to a genuinely missing settings document (first run), never while it loads.
   const currency = settings?.currency ?? 'USD'
@@ -30,7 +45,7 @@ export function HomePage() {
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
   const header = (
     <>
-      <MonthSwitcher month={month} locale={locale} onChange={setMonth} />
+      <MonthSwitcher month={month} locale={locale} onChange={changeMonth} />
       {/* Spec §11: shown while the visible month holds writes the server has not acknowledged (offline, or still in flight). */}
       {pending ? (
         <div className="mb-3 flex justify-center">
@@ -58,15 +73,18 @@ export function HomePage() {
       {loading ? (
         loadingLine
       ) : transactions.length === 0 ? (
-        <EmptyState
-          title={`Nothing in ${monthLabel(month, locale)}`}
-          body="Add your first expense with the + button."
-          action={<Button onClick={openAdd}>Add your first entry</Button>}
-        />
+        // A failed query is not an empty month: its error above stands alone.
+        error ? null : (
+          <EmptyState
+            title={`Nothing in ${monthLabel(month, locale)}`}
+            body="Add your first expense with the + button."
+            action={<Button onClick={openAdd}>Add your first entry</Button>}
+          />
+        )
       ) : (
         <>
           <BreakdownList rows={breakdown} byId={byId} currency={currency} locale={locale} />
-          <TransactionList groups={groups} byId={byId} currency={currency} locale={locale} today={todayIso()} onSelect={openEdit} />
+          <TransactionList groups={groups} byId={byId} currency={currency} locale={locale} today={today} onSelect={openEdit} />
         </>
       )}
     </>
