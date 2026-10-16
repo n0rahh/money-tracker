@@ -18,6 +18,7 @@
 }
 
 @custom-variant short (@media (max-height: 700px));
+@custom-variant tiny (@media (max-height: 480px));
 
 html, body, #root { height: 100%; }
 

@@ -89,7 +89,7 @@ export function Sheet({ open, title, onClose, children, footer, full = false, he
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative z-10 flex w-full max-w-lg flex-col border border-border bg-surface outline-none! transition-transform duration-200 ease-out starting:translate-y-full md:starting:translate-y-4 ${shape}`}
+        className={`relative z-10 flex w-full max-w-lg flex-col border border-border bg-surface outline-none! transition-transform duration-200 ease-out starting:translate-y-full md:starting:translate-y-4 tiny:overflow-y-auto ${shape}`}
       >
         <div className="safe-pt flex items-center justify-between px-4 pb-2">
           <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
@@ -102,7 +102,8 @@ export function Sheet({ open, title, onClose, children, footer, full = false, he
             ) : null}
           </div>
         </div>
-        <div className={`flex-1 overflow-y-auto px-4 pb-4 ${bodyClassName}`}>{children}</div>
+        {/* At 480 px of height or less (landscape phones) the whole card scrolls: a tall footer would otherwise squeeze the body to nothing. */}
+        <div className={`flex-1 overflow-y-auto px-4 pb-4 tiny:flex-none tiny:overflow-visible ${bodyClassName}`}>{children}</div>
         {footer ? <div className="safe-pb border-t border-border px-4 pt-3">{footer}</div> : null}
       </div>
     </div>

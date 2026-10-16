@@ -1,68 +1,66 @@
 import { Timestamp } from 'firebase/firestore'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSheetProvider, useAddSheet } from '../context/AddSheetContext'
 import { ToastProvider } from '../context/ToastContext'
 import { todayIso } from '../lib/dates'
-import type { Category } from '../lib/types'
+import type { Category, Transaction } from '../lib/types'
 import { AddTransactionSheet } from './AddTransactionSheet'
 
 const CATS: Category[] = [
   { id: 'c1', name: 'Coffee', icon: 'Coffee', color: 'amber', kind: 'expense', order: 0, archived: false },
   { id: 'c2', name: 'Salary', icon: 'Banknote', color: 'emerald', kind: 'income', order: 0, archived: false },
 ]
+const FLAT_WHITE: Transaction = { id: 't9', kind: 'expense', amount: 350, categoryId: 'c1', note: 'flat white', date: '2026-10-01', at: Timestamp.fromDate(new Date(2026, 9, 1, 12)), source: 'app' }
+const YEN_COFFEE: Transaction = { ...FLAT_WHITE, id: 't10', amount: 1200, note: '' }
 
-const { createTransaction, updateTransaction, deleteTransaction } = vi.hoisted(() => ({
+const { createTransaction, updateTransaction, deleteTransaction, useSettings } = vi.hoisted(() => ({
   createTransaction: vi.fn(),
   updateTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
+  useSettings: vi.fn(),
 }))
 vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction }))
 vi.mock('../hooks/useCategories', () => ({
   useCategories: () => ({ categories: CATS, byId: new Map(CATS.map((c) => [c.id, c])), loading: false, error: null }),
 }))
-vi.mock('../hooks/useSettings', () => ({
-  useSettings: () => ({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null }),
-}))
+vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useTransactions', () => ({
   useTransactions: () => ({ transactions: [], loading: false, error: null }),
 }))
 
-function Harness() {
+function Harness({ edit = FLAT_WHITE }: { edit?: Transaction }) {
   const { state, openAdd, openEdit } = useAddSheet()
   return (
     <>
       {!state.open ? <button onClick={openAdd}>open-add</button> : null}
-      {!state.open ? (
-        <button
-          onClick={() =>
-            openEdit({ id: 't9', kind: 'expense', amount: 350, categoryId: 'c1', note: 'flat white', date: '2026-10-01', at: Timestamp.fromDate(new Date(2026, 9, 1, 12)), source: 'app' })
-          }
-        >
-          open-edit
-        </button>
-      ) : null}
+      {!state.open ? <button onClick={() => openEdit(edit)}>open-edit</button> : null}
       <AddTransactionSheet />
     </>
   )
 }
 
-const setup = () => render(<ToastProvider><AddSheetProvider><Harness /></AddSheetProvider></ToastProvider>)
+const app = (edit?: Transaction) => <ToastProvider><AddSheetProvider><Harness edit={edit} /></AddSheetProvider></ToastProvider>
+const setup = () => render(app())
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null })
   createTransaction.mockReturnValue({ id: 'new', done: new Promise<void>(() => {}) }) // never resolves: offline
   updateTransaction.mockReturnValue(new Promise<void>(() => {}))
+  deleteTransaction.mockReturnValue(new Promise<void>(() => {}))
 })
 
-// The sheet remembers the last saved kind for the whole session (module state), so tests that rely on the starting kind pick Expense explicitly.
+afterEach(() => {
+  vi.restoreAllMocks() // the window.confirm spies
+})
+
 describe('AddTransactionSheet', () => {
   it('adds an expense without waiting for the server', async () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByText('open-add'))
-    await user.click(screen.getByRole('radio', { name: 'Expense' }))
     expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: '1' }))
     await user.click(screen.getByRole('button', { name: '2' }))
@@ -78,7 +76,6 @@ describe('AddTransactionSheet', () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByText('open-add'))
-    await user.click(screen.getByRole('radio', { name: 'Expense' }))
     await user.click(screen.getByRole('button', { name: 'Coffee' }))
     for (const key of ['5', 'Minus', '9']) await user.click(screen.getByRole('button', { name: key }))
     expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
@@ -119,11 +116,17 @@ describe('AddTransactionSheet', () => {
     expect(screen.getByRole('radio', { name: 'Income' })).toBeChecked()
   })
 
+  it("a session's first Add opens on Expense", async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    expect(screen.getByRole('radio', { name: 'Expense' })).toBeChecked()
+  })
+
   it('clears a category of the other kind when switching', async () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByText('open-add'))
-    await user.click(screen.getByRole('radio', { name: 'Expense' }))
     await user.click(screen.getByRole('button', { name: 'Coffee' }))
     await user.click(screen.getByRole('button', { name: '1' }))
     await user.click(screen.getByRole('radio', { name: 'Income' }))
@@ -149,11 +152,56 @@ describe('AddTransactionSheet', () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByText('open-add'))
-    await user.click(screen.getByRole('radio', { name: 'Expense' }))
     await user.click(screen.getByRole('button', { name: '5' }))
     await user.click(screen.getByRole('button', { name: 'Coffee' }))
     await user.type(screen.getByLabelText('Note'), '  latte  ')
     await user.click(screen.getByRole('button', { name: /add €5\.00 · coffee/i }))
     expect(createTransaction).toHaveBeenCalledWith(expect.objectContaining({ note: 'latte' }))
+  })
+
+  it('waits for settings before seeding an edit', async () => {
+    useSettings.mockReturnValue({ settings: null, loading: true, fromCache: true, error: null })
+    const user = userEvent.setup()
+    const { rerender } = render(app(YEN_COFFEE))
+    await user.click(screen.getByText('open-edit'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    useSettings.mockReturnValue({ settings: { currency: 'JPY', locale: 'en' }, loading: false, fromCache: false, error: null })
+    rerender(app(YEN_COFFEE))
+    expect(screen.getByTestId('amount-expr')).toHaveTextContent('1200')
+    expect(screen.getByRole('button', { name: /save ¥1,200 · coffee/i })).toBeInTheDocument()
+  })
+
+  it('keeps the transaction when the delete is not confirmed', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(window.confirm).toHaveBeenCalledWith('Delete this transaction?')
+    expect(deleteTransaction).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('deletes after confirmation without waiting for the server', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(deleteTransaction).toHaveBeenCalledWith('t9')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('reports a failed save in a toast after the sheet has closed', async () => {
+    // Built on call, so the rejection gets its handler in the tick it is created.
+    createTransaction.mockImplementation(() => ({ id: 'new', done: Promise.reject(new Error('denied')) }))
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    await user.click(screen.getByRole('button', { name: /add €5\.00 · coffee/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(await screen.findByText(/could not save: denied/i)).toBeInTheDocument()
   })
 })

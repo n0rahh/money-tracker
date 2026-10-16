@@ -10,7 +10,7 @@ import { createTransaction, deleteTransaction, updateTransaction } from '../lib/
 import { EMPTY_KEYPAD, keypadFromMinor, keypadMinor, pressKey, type KeypadState } from '../lib/keypad'
 import { formatMoney, minorUnitDigits } from '../lib/money'
 import { orderCategoriesByRecency } from '../lib/stats'
-import type { IsoDate, Kind, Transaction } from '../lib/types'
+import type { IsoDate, Kind, Settings, Transaction } from '../lib/types'
 import { AmountDisplay } from './AmountDisplay'
 import { Button } from './Button'
 import { CategoryChip } from './CategoryChip'
@@ -19,20 +19,36 @@ import { Keypad } from './Keypad'
 import { SegmentedControl } from './SegmentedControl'
 import { Sheet } from './Sheet'
 
-/** Kind of the last saved entry; a new entry starts with it for the rest of the session (spec §7). */
-let lastKind: Kind = 'expense'
-
 export function AddTransactionSheet() {
-  const { state, close } = useAddSheet()
-  if (!state.open) return null
+  const { state, close, lastKind, rememberKind } = useAddSheet()
+  // Read before the early return and waited for: the currency fixes the keypad's decimal digits when an edit is seeded.
+  const { settings, loading } = useSettings()
+  if (!state.open || loading) return null
   // key resets all form state for every open
-  return <AddTransactionForm key={state.editing?.id ?? 'new'} editing={state.editing} onClose={close} />
+  return (
+    <AddTransactionForm
+      key={state.editing?.id ?? 'new'}
+      editing={state.editing}
+      settings={settings}
+      lastKind={lastKind}
+      rememberKind={rememberKind}
+      onClose={close}
+    />
+  )
 }
 
-function AddTransactionForm({ editing, onClose }: { editing: Transaction | null; onClose: () => void }) {
+type FormProps = {
+  editing: Transaction | null
+  /** null only while no settings document exists yet (first run). */
+  settings: Settings | null
+  lastKind: Kind
+  rememberKind: (kind: Kind) => void
+  onClose: () => void
+}
+
+function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose }: FormProps) {
   const { showToast } = useToast()
   const { categories } = useCategories()
-  const { settings } = useSettings()
   const { from, to } = monthRange(currentMonth())
   const { transactions: recent } = useTransactions(from, to)
 
@@ -64,7 +80,7 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       ? updateTransaction(editing.id, { ...input, at: editing.date === date ? editing.at.toDate() : undefined })
       : createTransaction(input).done
     pending.catch(fail('Could not save'))
-    lastKind = kind
+    rememberKind(kind)
     onClose() // never wait for the server: the local cache already applied the write
   }
 
@@ -84,8 +100,8 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       full
       title={editing ? 'Edit' : 'Add'}
       onClose={onClose}
-      // sticky amount block (162 px) + 8 px, so a focused field is never scrolled in behind it; no block to clear once it is static
-      bodyClassName="scroll-pt-[170px] short:scroll-pt-0"
+      // sticky amount block (162 px) + 8 px = 10.625rem, so a focused field is never scrolled in behind it; no block to clear once it is static
+      bodyClassName="scroll-pt-[10.625rem] short:scroll-pt-0"
       headerRight={
         editing ? (
           <button type="button" aria-label="Delete" onClick={remove} className="flex size-11 items-center justify-center rounded-full bg-danger/15 text-danger">
@@ -117,7 +133,7 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
           aria-label="Note"
           className="min-h-11 rounded-chip border border-border bg-surface-2 px-3 text-text placeholder:text-muted"
         />
-        <div className="-mx-4 overflow-x-auto px-4" aria-label="Category">
+        <div role="group" className="-mx-4 overflow-x-auto px-4" aria-label="Category">
           <div className="grid grid-flow-col grid-rows-2 gap-2">
             {ordered.map((c) => (
               <CategoryChip key={c.id} category={c} selected={c.id === categoryId} onClick={() => setCategoryId(c.id)} />
