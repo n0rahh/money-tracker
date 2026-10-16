@@ -80,6 +80,14 @@ describe('transactions', () => {
     await assertFails(setDoc(doc(db, 'transactions/cap1'), { ...validTx(), amount: 100000000000 }))
     await assertSucceeds(setDoc(doc(db, 'transactions/cap2'), { ...validTx(), amount: 99999999999 }))
   })
+
+  it('accepts a valid income transaction', async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'transactions/i1'), { ...validTx(), kind: 'income', amount: 500000, categoryId: 'salary' }))
+  })
+
+  it('accepts a note of exactly 200 characters', async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'transactions/n200'), { ...validTx(), note: 'x'.repeat(200) }))
+  })
 })
 
 describe('categories', () => {
@@ -103,6 +111,25 @@ describe('categories', () => {
   it('rejects an unknown kind', async () => {
     await assertFails(setDoc(doc(owner(), 'categories/c4'), { ...validCategory(), kind: 'transfer' }))
   })
+  it('owner can read a category it created', async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'categories/c1'), validCategory()))
+    await assertSucceeds(getDoc(doc(owner(), 'categories/c1')))
+  })
+  it('owner can delete a category; another verified account cannot', async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'categories/c1'), validCategory()))
+    await assertFails(deleteDoc(doc(stranger(), 'categories/c1')))
+    await assertSucceeds(deleteDoc(doc(owner(), 'categories/c1')))
+  })
+  it('rejects wrong field types', async () => {
+    const db = owner()
+    await assertFails(setDoc(doc(db, 'categories/t1'), { ...validCategory(), icon: 7 }))
+    await assertFails(setDoc(doc(db, 'categories/t2'), { ...validCategory(), order: '2' }))
+    await assertFails(setDoc(doc(db, 'categories/t3'), { ...validCategory(), archived: 'false' }))
+  })
+  it('accepts names of 1 and 40 characters', async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'categories/n1'), { ...validCategory(), name: 'x' }))
+    await assertSucceeds(setDoc(doc(owner(), 'categories/n40'), { ...validCategory(), name: 'x'.repeat(40) }))
+  })
 })
 
 describe('settings', () => {
@@ -114,10 +141,42 @@ describe('settings', () => {
     await assertSucceeds(setDoc(doc(owner(), 'settings/main'), { currency: 'EUR', locale: null }))
     await assertFails(getDoc(doc(stranger(), 'settings/main')))
   })
+  it('owner can read settings/main after writing it', async () => {
+    await assertSucceeds(setDoc(doc(owner(), 'settings/main'), { currency: 'EUR', locale: null }))
+    await assertSucceeds(getDoc(doc(owner(), 'settings/main')))
+  })
+})
+
+describe.each([
+  { who: 'anonymous', db: anon },
+  { who: 'the owner email without email_verified', db: unverifiedOwner },
+])('$who on categories and settings', ({ db }) => {
+  beforeEach(async () => {
+    // Existing documents, so a denial is the rules' doing, not a missing document.
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'categories/c1'), validCategory())
+      await setDoc(doc(ctx.firestore(), 'settings/main'), { currency: 'EUR', locale: null })
+    })
+  })
+  it('is denied reading and writing categories', async () => {
+    await assertFails(getDoc(doc(db(), 'categories/c1')))
+    await assertFails(setDoc(doc(db(), 'categories/c2'), validCategory()))
+    await assertFails(updateDoc(doc(db(), 'categories/c1'), { name: 'Tea' }))
+  })
+  it('is denied reading and writing settings', async () => {
+    await assertFails(getDoc(doc(db(), 'settings/main')))
+    await assertFails(setDoc(doc(db(), 'settings/main'), { currency: 'USD', locale: null }))
+  })
 })
 
 describe('other collections', () => {
   it('nobody can write to an unknown collection', async () => {
     await assertFails(setDoc(doc(owner(), 'secrets/x'), { a: 1 }))
+  })
+  it('nobody can read an unknown collection', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'secrets/x'), { a: 1 })
+    })
+    await assertFails(getDoc(doc(owner(), 'secrets/x')))
   })
 })
