@@ -16,7 +16,8 @@ const firebaseConfig = {
   appId: env.VITE_FIREBASE_APP_ID,
 }
 
-export const ALLOWED_EMAIL: string = env.VITE_ALLOWED_EMAIL ?? 'vlad.herasymovychh@gmail.com'
+// `||`, not `??`: an empty `VITE_ALLOWED_EMAIL=` line must fall back to the owner too (it must match firestore.rules).
+export const ALLOWED_EMAIL: string = env.VITE_ALLOWED_EMAIL || 'vlad.herasymovychh@gmail.com'
 
 export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId && !String(firebaseConfig.apiKey).includes('YOUR_'),
