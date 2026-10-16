@@ -16,7 +16,10 @@ export function useSettings() {
           setFromCache(cached)
           setLoading(false)
         },
-        setError,
+        (e) => {
+          setError(e)
+          setLoading(false)
+        },
       ),
     [],
   )

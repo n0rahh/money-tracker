@@ -16,7 +16,10 @@ export function useTransactions(from: IsoDate, to: IsoDate) {
         setTransactions(t)
         setLoading(false)
       },
-      setError,
+      (e) => {
+        setError(e)
+        setLoading(false)
+      },
     )
   }, [from, to])
 

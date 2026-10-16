@@ -110,6 +110,8 @@ export function deleteTransaction(id: string): Promise<void> {
 export function subscribeSettings(onData: (settings: Settings | null, fromCache: boolean) => void, onError?: (e: Error) => void): Unsubscribe {
   return onSnapshot(
     settingsDoc(),
+    // includeMetadataChanges: the first-run gate must learn when a cached "no settings" result is confirmed by the server.
+    { includeMetadataChanges: true },
     (snap) => onData(snap.exists() ? mapSettings(snap.data()) : null, snap.metadata.fromCache),
     (e) => onError?.(e),
   )

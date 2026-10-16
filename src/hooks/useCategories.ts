@@ -14,7 +14,10 @@ export function useCategories() {
           setCategories(c)
           setLoading(false)
         },
-        setError,
+        (e) => {
+          setError(e)
+          setLoading(false)
+        },
       ),
     [],
   )
