@@ -4181,19 +4181,22 @@ Expected: `public/` now contains `pwa-64x64.png`, `pwa-192x192.png`, `pwa-512x51
 
 - [ ] **Step 3: Split the Firebase chunk, gate the emulator hookup, build and check the bundle budget**
 
-In `vite.config.ts` add a `build` section next to `plugins` so Firebase ships as its own long-cached chunk and the 500 kB chunk warning goes away:
+In `vite.config.ts` add a `build` section next to `plugins` so Firebase ships as its own long-cached chunk (Vite 8 runs on Rolldown, which rejects the object form of `manualChunks`; use its `codeSplitting.groups`; the Firebase chunk is ~634 kB minified, so raise the warning limit to 700 kB instead of splitting the SDK further):
 ```ts
   build: {
-    rollupOptions: {
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
       output: {
-        manualChunks: { firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'] },
+        codeSplitting: {
+          groups: [{ name: 'firebase', test: /node_modules[\\/](?:@firebase|firebase)[\\/]/ }],
+        },
       },
     },
   },
 ```
-(Vite 8 runs on Rolldown; if it rejects `rollupOptions`, use the equivalent `rolldownOptions` key and note it.)
+Also in the `workbox` block add `globIgnores: ['**/inter-{cyrillic,cyrillic-ext,greek,greek-ext,vietnamese}-*.woff2']` so only the Latin font subsets are precached, and in the `test` block add `experimental: { diagnostics: false }` so Vitest's end-of-run "Isolate … faster" hint stays out of the output.
 
-In `src/lib/firebase.ts` change the emulator guard to `if (env.DEV && env.VITE_USE_EMULATORS === '1') {` so a production build can never connect to 127.0.0.1 even if `.env.local` still carries the demo values.
+In `src/lib/firebase.ts` change the emulator guard to `if (import.meta.env.DEV && env.VITE_USE_EMULATORS === '1') {` — the literal `import.meta.env.DEV` (not the `env` alias) is what Vite constant-folds, so the emulator code is dropped from the production bundle (`grep -c 127.0.0.1 dist/assets/*.js` must be 0).
 
 Run: `npm run build`
 Expected: no chunk-size warning; Vite prints each asset with its gzip size. The `.js` gzip sizes must total ≤ 350 kB. If over, the usual culprit is importing all of `lucide-react` somewhere (only `CATEGORY_ICONS` and named icons are allowed) — fix and rebuild.
