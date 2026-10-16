@@ -193,7 +193,7 @@ Full-height bottom sheet, opens in ≈180 ms:
 2. **Amount display** (big, tabular numerals, currency symbol) fed by a **custom keypad**: `1 2 3 ⌫ / 4 5 6 + / 7 8 9 − / . 0 =`. The keypad supports simple sums (`12.5 + 3`) because receipts are often split; `=` or Save evaluates. Max 2 decimals, no leading zeros, operator replaces operator.
 3. **Date chips**: Today · Yesterday · Pick… (native date input). Default Today.
 4. **Note** field (optional, 16 px font so iOS does not zoom).
-5. **Category grid**: 2 horizontally scrolling rows of chips (icon + name) in category colors; most-recently used first; selected chip is filled.
+5. **Category grid**: 2 horizontally scrolling rows of chips (icon + name) in category colors; most-recently used first; selected chip is filled. Archived categories are hidden, except that when editing an old entry whose category was archived, that category is shown first as a selected chip labelled "… (archived)" so the entry can be saved unchanged.
 6. **Save** button reads "Add €12.50 · Groceries" and is disabled until amount > 0 and a category is chosen. The keypad and the Save button are fixed at the bottom of the sheet and the amount stays pinned at the top; only the date, note and category rows scroll on short phones.
 7. Edit mode: same sheet prefilled, with Delete (confirm) in the header.
 8. (M2) **Suggestion chips** above the keypad: the 4 most frequent (category, amount, note) combos of the last 60 days, e.g. "☕ Coffee €3.50". One tap fills everything; Save confirms.
@@ -306,7 +306,7 @@ Stretch ideas, deliberately out of scope until the above exists: accounts and tr
 
 ## 11. Error handling and edge cases
 
-- **Offline writes**: Firestore queues them; the UI shows the entry immediately. A small "Syncing…" pill appears under the month header while `hasPendingWrites` is true for the visible month (the row's space is reserved so nothing jumps), and disappears on sync. No blocking spinners on add.
+- **Offline writes**: Firestore queues them; the UI shows the entry immediately. A small "Syncing…" badge appears in the top-right corner of the summary card while `hasPendingWrites` is true for the visible month (absolutely positioned, so nothing shifts), and disappears on sync. No blocking spinners on add.
 - **Quota exhausted** (practically impossible, but on Spark the service stops instead of billing): reads fail with `resource-exhausted`; M1 shows the raw error under the summary card; a friendlier banner ("Firebase quota reached, data will refresh after midnight PT") is deferred to M2.
 - **Wrong Google account**: immediate sign-out with "This app only accepts vlad.herasymovychh@gmail.com".
 - **Deleted/archived category on an old transaction**: rows render with the stored category name if the category document still exists (archived) or "Uncategorized" in slate if it was removed by hand in the console.
@@ -322,11 +322,11 @@ Stretch ideas, deliberately out of scope until the above exists: accounts and tr
 - **Rules tests** with `@firebase/rules-unit-testing` against the Firestore emulator: owner allowed, other verified email denied, unverified owner denied, anonymous denied, schema violations denied (negative amount, bad date, long note).
 - **Component tests** (Testing Library + jsdom) for the keypad and the Add sheet's enable/disable logic.
 - **Device checklist** (manual, in the repo): install to home screen, cold start with airplane mode, add offline then reconnect, sign-in flow in standalone, safe areas on a notched iPhone, no zoom on input focus, icon and splash color.
-- **CI** (GitHub Actions): lint + typecheck + unit tests on every push; deploy to Hosting from `main` using the workflow `firebase init hosting:github` generates.
+- **CI** (GitHub Actions): lint + typecheck + unit tests (TZ pinned to Europe/Warsaw so the DST assertions bite) + the rules tests on the Firestore emulator, on every push and pull request. Deploys stay manual (`npm run deploy`).
 
 ## 13. Development workflow and deployment
 
-- Node 22 LTS, npm (as in food-tracker). Scripts: `dev`, `build`, `preview`, `lint` (oxlint), `typecheck`, `test`, `test:rules`, `deploy`.
+- Node 24 (Firebase 13 requires ≥ 24.12), npm (as in food-tracker). Scripts: `dev`, `build`, `preview`, `lint` (oxlint), `typecheck`, `test`, `test:rules`, `deploy`.
 - `.env.local` holds the Firebase web config (copied from the console); `.env.example` documents the keys. `VITE_ALLOWED_EMAIL` holds the owner email for the UI check.
 - Local dev talks to the real project (one user, free tier) exactly like food-tracker; the emulator is used only for rules tests. If you prefer, `VITE_USE_EMULATORS=1` switches dev to local emulators.
 - Deploy: `npm run deploy` = `vite build` + `firebase deploy --project money-tracker-vlad` (hosting + rules + indexes).
