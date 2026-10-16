@@ -3749,12 +3749,12 @@ git commit -m "feat: home month view with summary, category breakdown and first-
 ### Task 14: Categories page (list, create, edit, archive, reorder)
 
 **Files:**
-- Create: `src/lib/iconSearch.ts`, `src/lib/iconSearch.test.ts`, `src/components/IconPicker.tsx`, `src/components/ColorPicker.tsx`, `src/components/CategoryEditSheet.tsx`
+- Create: `src/lib/iconSearch.ts`, `src/lib/iconSearch.test.ts`, `src/components/IconPicker.tsx`, `src/components/ColorPicker.tsx`, `src/components/CategoryEditSheet.tsx`, `src/components/CategoryEditSheet.test.tsx`, `src/pages/CategoriesPage.test.tsx`
 - Replace: `src/pages/CategoriesPage.tsx`
 
 **Interfaces:**
 - Consumes: Tasks 2, 3, 10, 12.
-- Produces: `filterIcons(query: string, keys?: IconKey[]): IconKey[]`; `IconPicker({ value: IconKey; onChange(k): void; color: string })`; `ColorPicker({ value: ColorKey; onChange(c): void })`; `CategoryEditSheet({ open, kind, editing: Category | null, siblings: Category[], onClose })`.
+- Produces: `filterIcons(query: string, keys?: IconKey[]): IconKey[]`; `IconPicker({ value: IconKey; onChange(k): void; color: string })`; `ColorPicker({ value: ColorKey; onChange(c): void })`; `CategoryEditSheet({ open, kind, editing: Category | null, siblings: Category[], nextOrder: number, onClose })` — `nextOrder` is max order over ALL categories of the kind (archived included) + 1, used for create and on unarchive.
 
 - [ ] **Step 1: Write the failing icon-search test** (`src/lib/iconSearch.test.ts`)
 
@@ -3879,12 +3879,14 @@ type Props = {
   open: boolean
   kind: Kind
   editing: Category | null
-  /** Active categories of `kind`, sorted by `order` (used for Move up/down and the next order). */
+  /** Active categories of `kind`, sorted by `order` (used for Move up/down). */
   siblings: Category[]
+  /** One past the highest `order` of `kind`, archived included: where new and unarchived categories go. */
+  nextOrder: number
   onClose: () => void
 }
 
-export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Props) {
+export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, onClose }: Props) {
   const { showToast } = useToast()
   const [name, setName] = useState(editing?.name ?? '')
   const [icon, setIcon] = useState<IconKey>(editing?.icon ?? FALLBACK_ICON)
@@ -3902,8 +3904,7 @@ export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Pr
     if (editing) {
       updateCategory(editing.id, { name: trimmed, icon, color }).catch(fail)
     } else {
-      const order = siblings.reduce((max, c) => Math.max(max, c.order), -1) + 1
-      createCategory({ name: trimmed, icon, color, kind, order, archived: false }).done.catch(fail)
+      createCategory({ name: trimmed, icon, color, kind, order: nextOrder, archived: false }).done.catch(fail)
     }
     onClose()
   }
@@ -3916,7 +3917,8 @@ export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Pr
 
   function toggleArchived() {
     if (!editing) return
-    updateCategory(editing.id, { archived: !editing.archived }).catch(fail)
+    // Unarchiving moves it last: its old order may now belong to a category created meanwhile.
+    updateCategory(editing.id, editing.archived ? { archived: false, order: nextOrder } : { archived: true }).catch(fail)
     onClose()
   }
 
@@ -3947,8 +3949,8 @@ export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Pr
         <IconPicker value={icon} onChange={setIcon} color={CATEGORY_COLORS[color]} />
         {editing ? (
           <div className="flex gap-2">
-            <Button variant="ghost" className="flex-1" disabled={index <= 0} onClick={() => move(-1)}>Move up</Button>
-            <Button variant="ghost" className="flex-1" disabled={index < 0 || index >= siblings.length - 1} onClick={() => move(1)}>Move down</Button>
+            <Button variant="ghost" className="flex-1" aria-label="Move up" disabled={index <= 0} onClick={() => move(-1)}>Up</Button>
+            <Button variant="ghost" className="flex-1" aria-label="Move down" disabled={index < 0 || index >= siblings.length - 1} onClick={() => move(1)}>Down</Button>
             <Button variant={editing.archived ? 'ghost' : 'danger'} className="flex-1" onClick={toggleArchived}>
               {editing.archived ? 'Unarchive' : 'Archive'}
             </Button>
@@ -3981,6 +3983,8 @@ export function CategoriesPage() {
 
   const active = categories.filter((c) => c.kind === kind && !c.archived).sort((a, b) => a.order - b.order)
   const archived = categories.filter((c) => c.kind === kind && c.archived)
+  // Archived ones count too, so a new or unarchived category never shares an order (a swap of equal orders does nothing).
+  const nextOrder = categories.reduce((max, c) => (c.kind === kind ? Math.max(max, c.order) : max), -1) + 1
   const open = (editing: Category | null) => setSheet((s) => ({ open: true, editing, nonce: s.nonce + 1 }))
   const close = () => setSheet((s) => ({ ...s, open: false }))
 
@@ -4006,7 +4010,7 @@ export function CategoriesPage() {
       <ul className="mt-4 overflow-hidden rounded-card bg-surface">{active.map(row)}</ul>
       {archived.length > 0 ? (
         <details className="mt-4">
-          <summary className="cursor-pointer px-1 text-xs font-semibold uppercase tracking-wider text-muted">Archived ({archived.length})</summary>
+          <summary className="flex min-h-11 cursor-pointer items-center px-1 text-xs font-semibold uppercase tracking-wider text-muted">Archived ({archived.length})</summary>
           <ul className="mt-2 overflow-hidden rounded-card bg-surface opacity-70">{archived.map(row)}</ul>
         </details>
       ) : null}
@@ -4016,6 +4020,7 @@ export function CategoriesPage() {
         kind={kind}
         editing={sheet.editing}
         siblings={active}
+        nextOrder={nextOrder}
         onClose={close}
       />
     </>
