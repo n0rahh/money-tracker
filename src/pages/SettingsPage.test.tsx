@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
+import { CURRENCIES } from '../lib/currencies'
 import type { Settings } from '../lib/types'
 import { SettingsPage } from './SettingsPage'
 
@@ -57,6 +58,17 @@ describe('SettingsPage', () => {
     expect(logOut).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    { name: 'the reason', rejection: new Error('Firebase: Error (auth/network-request-failed).'), shown: 'Firebase: Error (auth/network-request-failed).' },
+    { name: 'a generic message', rejection: 'offline', shown: 'Could not sign out' },
+  ])('toasts $name when signing out fails', async ({ rejection, shown }) => {
+    const user = userEvent.setup()
+    logOut.mockRejectedValue(rejection)
+    page()
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(shown)
+  })
+
   describe('currency', () => {
     it('saves the choice and closes the sheet at once, without waiting for the write', async () => {
       const user = userEvent.setup()
@@ -77,6 +89,18 @@ describe('SettingsPage', () => {
       await user.click(within(screen.getByRole('dialog', { name: 'Currency' })).getByRole('button', { name: 'Close' }))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       expect(saveSettings).not.toHaveBeenCalled()
+    })
+
+    it('starts every visit with an empty search and the full list', async () => {
+      const user = userEvent.setup()
+      page()
+      await user.click(screen.getByRole('button', { name: /^Currency/ }))
+      await user.type(screen.getByLabelText('Search currency'), 'usd')
+      await user.click(screen.getByRole('button', { name: /^US dollar/ }))
+
+      await user.click(screen.getByRole('button', { name: /^Currency/ }))
+      expect(screen.getByLabelText('Search currency')).toHaveValue('')
+      expect(within(screen.getByRole('dialog', { name: 'Currency' })).getAllByRole('listitem')).toHaveLength(CURRENCIES.length)
     })
 
     it('keeps the stored locale', async () => {

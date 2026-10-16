@@ -23,25 +23,28 @@ export function SettingsPage() {
           <span className="tnum text-muted">{settings?.currency ?? '—'}</span>
         </button>
         <div className="flex min-h-12 items-center justify-between border-t border-border px-4">
-          <span>Signed in as</span>
-          <span className="truncate pl-4 text-sm text-muted">{user?.email}</span>
+          <span className="shrink-0">Signed in as</span>
+          <span className="truncate pl-4 text-xs text-muted">{user?.email}</span>
         </div>
       </section>
-      <Button variant="ghost" className="mt-4 w-full" onClick={() => void logOut()}>
+      <Button variant="ghost" className="mt-4 w-full" onClick={() => logOut().catch((e: unknown) => showToast(e instanceof Error ? e.message : 'Could not sign out'))}>
         Sign out
       </Button>
       <p className="mt-6 text-center text-xs text-muted">Money Tracker v{__APP_VERSION__}</p>
-      <CurrencySheet
-        open={currencyOpen}
-        current={settings?.currency ?? null}
-        title="Currency"
-        note="Changing the currency only changes the symbol and formatting. Existing amounts are not converted."
-        onClose={() => setCurrencyOpen(false)}
-        onSelect={(code) => {
-          saveSettings({ currency: code, locale: settings?.locale ?? null }).catch((e: unknown) => showToast(e instanceof Error ? e.message : 'Could not save'))
-          setCurrencyOpen(false)
-        }}
-      />
+      {/* Mounted only while open, so every visit starts with an empty search. */}
+      {currencyOpen ? (
+        <CurrencySheet
+          open
+          current={settings?.currency ?? null}
+          title="Currency"
+          note="Changing the currency only changes the symbol and formatting. Existing amounts are not converted."
+          onClose={() => setCurrencyOpen(false)}
+          onSelect={(code) => {
+            saveSettings({ currency: code, locale: settings?.locale ?? null }).catch((e: unknown) => showToast(e instanceof Error ? e.message : 'Could not save'))
+            setCurrencyOpen(false)
+          }}
+        />
+      ) : null}
     </>
   )
 }
