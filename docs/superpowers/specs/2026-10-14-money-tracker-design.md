@@ -254,8 +254,8 @@ rose, red, orange, amber, yellow, lime, green, emerald, teal, cyan, sky, blue, i
 
 ### Typography
 
-- **DM Sans** (variable, self-hosted via `@fontsource-variable/dm-sans` so it is precached and works offline), weights 400–700.
-- All amounts use `font-variant-numeric: tabular-nums` so columns line up and numbers do not jitter while typing.
+- **Inter** (variable, self-hosted via `@fontsource-variable/inter` so it is precached and works offline), weights 400–700. (DM Sans was the first choice; its fontsource build ignores `tabular-nums`, measured 2026-10-16, so amounts jittered while typing.)
+- All amounts use `font-variant-numeric: tabular-nums` so columns line up and numbers do not jitter while typing. The keypad expression is capped at 24 characters and the amount line shrinks in three steps (40/28/20 px) so it always fits a 375 px phone (343 px column), the smallest width iOS 26 runs on.
 - Scale: hero amount 40/44 px semibold, section titles 15 px semibold uppercase-tracking for small labels, body 15–16 px, captions 13 px.
 
 ### Components

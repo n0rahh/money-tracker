@@ -6,7 +6,7 @@
 
 **Architecture:** A static React/TypeScript/Vite single-page app on Firebase Hosting talks directly to Firestore through the Firebase JS SDK with persistent offline cache; there is no server code. All aggregation is done on the client from one month of transactions. Firestore security rules (owner email + schema validation) are the only enforcement layer. The Add sheet never awaits a Firestore write, so the UI stays instant offline.
 
-**Tech Stack:** React 19, TypeScript (strict), Vite, Tailwind CSS v4, Firebase JS SDK v12 (Auth + Firestore), react-router v7, vite-plugin-pwa (Workbox), lucide-react, @fontsource-variable/dm-sans, Vitest + Testing Library + jsdom, @firebase/rules-unit-testing with the Firestore emulator, oxlint, npm.
+**Tech Stack:** React 19, TypeScript (strict), Vite, Tailwind CSS v4, Firebase JS SDK v12 (Auth + Firestore), react-router v7, vite-plugin-pwa (Workbox), lucide-react, @fontsource-variable/inter, Vitest + Testing Library + jsdom, @firebase/rules-unit-testing with the Firestore emulator, oxlint, npm.
 
 **Spec:** `docs/superpowers/specs/2026-10-14-money-tracker-design.md` (read §4–§9 and §11 before starting; this plan implements the "M1 — Core logging" row of §10).
 
@@ -18,7 +18,7 @@
 - Owner email, verbatim, in rules and `.env`: `vlad.herasymovychh@gmail.com`.
 - Amounts are integers in minor units (cents); `date` is a local `YYYY-MM-DD` string; `at` is a Firestore `Timestamp`.
 - Root collections `categories`, `transactions`, `settings` (document `settings/main`); one composite index on `transactions`: `date DESC, at DESC`.
-- Design tokens exactly as spec §8: bg `#0a0a0d`, surface `#131318`, surface-2 `#1b1b22`, border `#26262f`, text `#f4f4f6`, muted `#8c8c9a`, accent `#c6f432`, accent-ink `#0a0a0d`, expense `#ff6b7a`, danger `#ff5c5c`; radii 20 px (cards) and 14 px (chips/keys).
+- Design tokens exactly as spec §8: bg `#0a0a0d`, surface `#131318`, surface-2 `#1b1b22`, border `#26262f`, text `#f4f4f6`, muted `#8c8c9a`, accent `#c6f432`, accent-ink `#0a0a0d`, expense `#ff6b7a`, danger `#ff5c5c`; radii 20 px (cards) and 14 px (chips/keys); font Inter Variable (self-hosted) because the DM Sans build ignores tabular numerals.
 - Touch targets ≥ 44 × 44 px everywhere (`min-h-11`/`size-11` minimum on every button, chip, swatch and icon control), keypad keys 56 px tall, every input 16 px font, `viewport-fit=cover` with safe-area padding, `prefers-reduced-motion` respected.
 - UI code never `await`s a Firestore write before updating the screen; it calls the write, attaches `.catch` → toast, and closes immediately.
 - The service worker must not intercept `/__/*` (Firebase Auth handler): `navigateFallbackDenylist: [/^\/__\//]`.
@@ -99,7 +99,7 @@
 
 ```bash
 cd ~/Projects/money-tracker
-npm install react react-dom react-router-dom firebase lucide-react @fontsource-variable/dm-sans
+npm install react react-dom react-router-dom firebase lucide-react @fontsource-variable/inter
 npm install -D typescript vite @vitejs/plugin-react tailwindcss @tailwindcss/vite vite-plugin-pwa oxlint vitest jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event @types/react @types/react-dom @types/node @firebase/rules-unit-testing firebase-tools
 ```
 
@@ -568,7 +568,7 @@ Run: `npx vitest run src/components` → Expected: FAIL (module not found).
 
 ```css
 @import 'tailwindcss';
-@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/inter';
 
 @theme {
   --color-bg: #0a0a0d;
@@ -581,7 +581,7 @@ Run: `npx vitest run src/components` → Expected: FAIL (module not found).
   --color-accent-ink: #0a0a0d;
   --color-expense: #ff6b7a;
   --color-danger: #ff5c5c;
-  --font-sans: 'DM Sans Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --radius-card: 20px;
   --radius-chip: 14px;
 }
@@ -985,7 +985,7 @@ Run: `npm run typecheck && npm test`
 Expected: PASS.
 
 Run: `npm run dev`, open http://localhost:5173 in Chrome's device toolbar (iPhone size).
-Expected: dark page, three bottom tabs switch pages, a lime + button bottom-right, DM Sans renders (check in the Elements panel that `font-family` resolves to "DM Sans Variable").
+Expected: dark page, three bottom tabs switch pages, a lime + button bottom-right, Inter renders (check in the Elements panel that `font-family` resolves to "Inter Variable").
 
 - [ ] **Step 11: Commit**
 
@@ -1890,6 +1890,20 @@ describe('pressKey', () => {
   it('replaces an operator with another operator', () => expect(press('5+-3').expr).toBe('5-3'))
   it('drops a dangling decimal point before an operator', () => expect(press('5.+3').expr).toBe('5+3'))
   it('caps integer digits at 9', () => expect(press('1234567890').expr).toBe('123456789'))
+  it('ignores input once the expression reaches 24 characters', () => {
+    const capped = press('123456789.12+123456789.1')
+    expect(capped.expr).toHaveLength(24)
+    expect(pressKey(capped, '2').expr).toBe(capped.expr)
+    expect(pressKey(capped, 'back').expr).toBe('123456789.12+123456789.')
+    expect(keypadMinor(capped)).toBe(24_691_357_822)
+  })
+  it('ignores a decimal point and operators at the cap too, while equals and clear still work', () => {
+    const capped = press('123456789.12+123456789+1')
+    expect(capped.expr).toHaveLength(24)
+    for (const key of ['.', '+', '-', '5'] as const) expect(pressKey(capped, key).expr).toBe(capped.expr)
+    expect(pressKey(capped, 'equals').expr).toBe('246913579.12')
+    expect(pressKey(capped, 'clear')).toEqual(EMPTY_KEYPAD)
+  })
   it('backspace removes the last character', () => expect(pressKey(press('12+'), 'back').expr).toBe('12'))
   it('clear empties the expression', () => expect(pressKey(press('12'), 'clear')).toEqual(EMPTY_KEYPAD))
   it('equals collapses the expression to its value', () => {
@@ -1940,6 +1954,7 @@ export type KeypadState = { expr: string }
 
 export const EMPTY_KEYPAD: KeypadState = { expr: '' }
 const MAX_INT_DIGITS = 9
+const MAX_EXPR_LENGTH = 24 // longest expression the keypad accepts
 const MAX_MINOR = 99_999_999_999 // rules require amount < 100000000000
 
 function currentTerm(expr: string): string {
@@ -1959,6 +1974,7 @@ export function pressKey(state: KeypadState, key: KeypadKey, digits = 2): Keypad
     const minor = keypadMinor(state, digits)
     return { expr: minor === 0 ? '' : trimZeros(minorToDecimalString(minor, digits)) }
   }
+  if (expr.length >= MAX_EXPR_LENGTH) return state
 
   const term = currentTerm(expr)
   if (key === '+' || key === '-') {
@@ -2014,7 +2030,7 @@ export function keypadFromMinor(minor: number, digits: number): KeypadState {
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `npx vitest run src/lib/keypad.test.ts` → Expected: 18 tests PASS.
+Run: `npx vitest run src/lib/keypad.test.ts` → Expected: 20 tests PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -2646,6 +2662,15 @@ describe('Keypad', () => {
     expect(screen.getAllByRole('button')).toHaveLength(16)
     expect(screen.getByRole('button', { name: 'Decimal point' })).toBeDisabled()
   })
+  it('lays out keys in the documented order', () => {
+    render(<Keypad onPress={() => {}} />)
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      '1', '2', '3', 'Backspace',
+      '4', '5', '6', 'Plus',
+      '7', '8', '9', 'Minus',
+      'Clear', '0', 'Decimal point', 'Equals',
+    ])
+  })
 })
 ```
 
@@ -2658,7 +2683,7 @@ import { AmountDisplay } from './AmountDisplay'
 describe('AmountDisplay', () => {
   it('shows the expression and its evaluated value', () => {
     render(<AmountDisplay state={{ expr: '12.5+3' }} currency="EUR" locale="en" kind="expense" />)
-    expect(screen.getByTestId('amount-expr')).toHaveTextContent('12.5 + 3')
+    expect(screen.getByTestId('amount-expr')).toHaveTextContent('12.5+3')
     expect(screen.getByTestId('amount-total')).toHaveTextContent('= €15.50')
   })
   it('shows 0 for an empty expression without an equals sign', () => {
@@ -2666,6 +2691,25 @@ describe('AmountDisplay', () => {
     expect(screen.getByTestId('amount-expr')).toHaveTextContent('0')
     expect(screen.getByTestId('amount-total')).toHaveTextContent('€0.00')
     expect(screen.getByTestId('amount-total')).not.toHaveTextContent('=')
+  })
+  it("uses the currency's minor-unit digits", () => {
+    const { rerender } = render(<AmountDisplay state={{ expr: '1500' }} currency="JPY" locale="en" kind="expense" />)
+    expect(screen.getByTestId('amount-total')).toHaveTextContent(/^¥1,500$/)
+    rerender(<AmountDisplay state={{ expr: '1.5' }} currency="KWD" locale="en" kind="expense" />)
+    expect(screen.getByTestId('amount-total')).toHaveTextContent(/1\.500$/)
+  })
+  it('shows the minus sign as a true minus', () => {
+    render(<AmountDisplay state={{ expr: '10-2.25' }} currency="EUR" locale="en" kind="expense" />)
+    expect(screen.getByTestId('amount-expr')).toHaveTextContent('10−2.25')
+    expect(screen.getByTestId('amount-total')).toHaveTextContent('= €7.75')
+  })
+  it('shrinks long expressions instead of clipping them', () => {
+    const { rerender } = render(<AmountDisplay state={{ expr: '12' }} currency="EUR" locale="en" kind="expense" />)
+    expect(screen.getByTestId('amount-expr')).toHaveAttribute('data-size', 'lg')
+    rerender(<AmountDisplay state={{ expr: '123456789.12+1' }} currency="EUR" locale="en" kind="expense" />)
+    expect(screen.getByTestId('amount-expr')).toHaveAttribute('data-size', 'md')
+    rerender(<AmountDisplay state={{ expr: '123456789.12+123456789.12' }} currency="EUR" locale="en" kind="expense" />)
+    expect(screen.getByTestId('amount-expr')).toHaveAttribute('data-size', 'sm')
   })
 })
 ```
@@ -2716,14 +2760,27 @@ import type { Kind } from '../lib/types'
 
 type Props = { state: KeypadState; currency: string; locale: string | null; kind: Kind }
 
+// Tailwind only emits classes it can see as whole strings, so each size is spelled out in full.
+const SIZE_CLASS = { lg: 'text-[40px]', md: 'text-[28px]', sm: 'text-[20px]' }
+
 export function AmountDisplay({ state, currency, locale, kind }: Props) {
   const digits = minorUnitDigits(currency)
   const minor = keypadMinor(state, digits)
-  const expr = state.expr === '' ? '0' : state.expr.replace(/\+/g, ' + ').replace(/-/g, ' − ')
+  const expr = state.expr === '' ? '0' : state.expr.replace(/-/g, '−')
+  // Steps down with the expression length (the keypad caps it at 24 characters) so the longest expression of each tier fits a 343px container; narrower ones can still clip it.
+  const size = expr.length > 18 ? 'sm' : expr.length > 11 ? 'md' : 'lg'
   return (
     <div className="py-2 text-center">
-      <div data-testid="amount-expr" aria-live="polite" className={`tnum truncate text-[40px] font-semibold leading-tight ${kind === 'income' ? 'text-accent' : 'text-text'}`}>
-        {expr}
+      {/* Fixed at the lg line height (50px) so stepping the size never moves what is below. */}
+      <div className="flex h-[50px] items-center justify-center">
+        <div
+          data-testid="amount-expr"
+          data-size={size}
+          aria-live="polite"
+          className={`tnum overflow-hidden whitespace-nowrap font-semibold leading-tight ${SIZE_CLASS[size]} ${kind === 'income' ? 'text-accent' : 'text-text'}`}
+        >
+          {expr}
+        </div>
       </div>
       <div data-testid="amount-total" className="tnum mt-1 text-sm text-muted">
         {hasOperator(state) ? '= ' : ''}
