@@ -20,4 +20,13 @@ describe('Keypad', () => {
     expect(screen.getAllByRole('button')).toHaveLength(16)
     expect(screen.getByRole('button', { name: 'Decimal point' })).toBeDisabled()
   })
+  it('lays out keys in the documented order', () => {
+    render(<Keypad onPress={() => {}} />)
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      '1', '2', '3', 'Backspace',
+      '4', '5', '6', 'Plus',
+      '7', '8', '9', 'Minus',
+      'Clear', '0', 'Decimal point', 'Equals',
+    ])
+  })
 })
