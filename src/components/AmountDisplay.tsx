@@ -5,13 +5,13 @@ import type { Kind } from '../lib/types'
 type Props = { state: KeypadState; currency: string; locale: string | null; kind: Kind }
 
 // Tailwind only emits classes it can see as whole strings, so each size is spelled out in full.
-const SIZE_CLASS = { lg: 'text-[40px]', md: 'text-[28px]', sm: 'text-[22px]' }
+const SIZE_CLASS = { lg: 'text-[40px]', md: 'text-[28px]', sm: 'text-[20px]' }
 
 export function AmountDisplay({ state, currency, locale, kind }: Props) {
   const digits = minorUnitDigits(currency)
   const minor = keypadMinor(state, digits)
-  const expr = state.expr === '' ? '0' : state.expr.replace(/\+/g, ' + ').replace(/-/g, ' − ')
-  // Steps down by displayed length (operator spaces included); several operators in a 24-character expression can still overflow, and that is clipped.
+  const expr = state.expr === '' ? '0' : state.expr.replace(/-/g, '−')
+  // Steps down with the expression length (the keypad caps it at 24 characters) so the longest expression of each tier fits a 343px container; narrower ones can still clip it.
   const size = expr.length > 18 ? 'sm' : expr.length > 11 ? 'md' : 'lg'
   return (
     <div className="py-2 text-center">

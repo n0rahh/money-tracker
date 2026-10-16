@@ -5,7 +5,7 @@ import { AmountDisplay } from './AmountDisplay'
 describe('AmountDisplay', () => {
   it('shows the expression and its evaluated value', () => {
     render(<AmountDisplay state={{ expr: '12.5+3' }} currency="EUR" locale="en" kind="expense" />)
-    expect(screen.getByTestId('amount-expr')).toHaveTextContent('12.5 + 3')
+    expect(screen.getByTestId('amount-expr')).toHaveTextContent('12.5+3')
     expect(screen.getByTestId('amount-total')).toHaveTextContent('= €15.50')
   })
   it('shows 0 for an empty expression without an equals sign', () => {
@@ -22,7 +22,7 @@ describe('AmountDisplay', () => {
   })
   it('shows the minus sign as a true minus', () => {
     render(<AmountDisplay state={{ expr: '10-2.25' }} currency="EUR" locale="en" kind="expense" />)
-    expect(screen.getByTestId('amount-expr')).toHaveTextContent('10 − 2.25')
+    expect(screen.getByTestId('amount-expr')).toHaveTextContent('10−2.25')
     expect(screen.getByTestId('amount-total')).toHaveTextContent('= €7.75')
   })
   it('shrinks long expressions instead of clipping them', () => {
