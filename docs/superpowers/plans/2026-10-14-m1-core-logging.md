@@ -2244,6 +2244,12 @@ describe('mapCategory', () => {
     const c = mapCategory('c2', { name: 'X', icon: 'NotAnIcon', color: 'magenta', kind: 'income' })
     expect(c).toMatchObject({ icon: 'CircleEllipsis', color: 'slate', kind: 'income', order: 0, archived: false })
   })
+  it('keeps archived: true', () => {
+    expect(mapCategory('c3', { name: 'Old', archived: true }).archived).toBe(true)
+  })
+  it('drops a createdAt that is not a Timestamp', () => {
+    expect(mapCategory('c4', { name: 'X', createdAt: '2026-10-14' }).createdAt).toBeUndefined()
+  })
 })
 
 describe('mapTransaction', () => {
@@ -2259,12 +2265,29 @@ describe('mapTransaction', () => {
     expect(t.at.toDate().getDate()).toBe(1)
     expect(t.at.toDate().getHours()).toBe(12)
   })
+  it('rounds a fractional amount to whole minor units', () => {
+    expect(mapTransaction('t3', { amount: 12.6, date: '2026-10-01' }).amount).toBe(13)
+  })
+  it('defaults a missing amount to 0 and a missing date to 1970-01-01', () => {
+    expect(mapTransaction('t4', {})).toMatchObject({ amount: 0, date: '1970-01-01' })
+  })
+  it('keeps the "import" source', () => {
+    expect(mapTransaction('t5', { amount: 5, date: '2026-10-01', source: 'import' }).source).toBe('import')
+  })
+  it('falls back to local noon of the date when `at` is not a Timestamp', () => {
+    const t = mapTransaction('t6', { amount: 5, date: '2026-10-01', at: '2026-10-01T10:00:00Z' })
+    expect(t.at.toMillis()).toBe(new Date(2026, 9, 1, 12).getTime())
+  })
 })
 
 describe('mapSettings', () => {
   it('validates the currency code and locale', () => {
     expect(mapSettings({ currency: 'EUR', locale: 'uk-UA' })).toEqual({ currency: 'EUR', locale: 'uk-UA' })
     expect(mapSettings({ currency: 'nope', locale: 7 })).toEqual({ currency: 'USD', locale: null })
+  })
+  it('falls back to USD for a lowercase code and keeps a valid one', () => {
+    expect(mapSettings({ currency: 'eur' }).currency).toBe('USD')
+    expect(mapSettings({ currency: 'PLN' }).currency).toBe('PLN')
   })
 })
 
@@ -2278,6 +2301,10 @@ describe('transactionAt', () => {
     expect(transactionAt({ date: '2026-10-14' }, now).toMillis()).toBe(now.getTime())
     const d = transactionAt({ date: '2026-10-02' }, now).toDate()
     expect([d.getDate(), d.getHours()]).toEqual([2, 12])
+  })
+  it('lets an explicit moment win even when the date is today', () => {
+    const at = new Date(2026, 9, 14, 9, 0)
+    expect(transactionAt({ date: '2026-10-14', at }, now).toMillis()).toBe(at.getTime())
   })
 })
 ```
@@ -2346,7 +2373,7 @@ export function transactionAt(input: { date: IsoDate; at?: Date }, now: Date = n
 }
 ```
 
-Run: `npx vitest run src/lib/mappers.test.ts` → Expected: 7 tests PASS.
+Run: `npx vitest run src/lib/mappers.test.ts` → Expected: 15 tests PASS.
 
 - [ ] **Step 4: Write `src/lib/firestore.ts`** (not unit-tested: it only wires the SDK; rules tests and the device checklist cover it)
 
@@ -2463,6 +2490,8 @@ export function deleteTransaction(id: string): Promise<void> {
 export function subscribeSettings(onData: (settings: Settings | null, fromCache: boolean) => void, onError?: (e: Error) => void): Unsubscribe {
   return onSnapshot(
     settingsDoc(),
+    // includeMetadataChanges: the first-run gate must learn when a cached "no settings" result is confirmed by the server.
+    { includeMetadataChanges: true },
     (snap) => onData(snap.exists() ? mapSettings(snap.data()) : null, snap.metadata.fromCache),
     (e) => onError?.(e),
   )
@@ -2493,7 +2522,10 @@ export function useCategories() {
           setCategories(c)
           setLoading(false)
         },
-        setError,
+        (e) => {
+          setError(e)
+          setLoading(false)
+        },
       ),
     [],
   )
@@ -2524,7 +2556,10 @@ export function useTransactions(from: IsoDate, to: IsoDate) {
         setTransactions(t)
         setLoading(false)
       },
-      setError,
+      (e) => {
+        setError(e)
+        setLoading(false)
+      },
     )
   }, [from, to])
 
@@ -2552,7 +2587,10 @@ export function useSettings() {
           setFromCache(cached)
           setLoading(false)
         },
-        setError,
+        (e) => {
+          setError(e)
+          setLoading(false)
+        },
       ),
     [],
   )
