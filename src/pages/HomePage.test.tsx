@@ -127,7 +127,7 @@ describe('HomePage', () => {
     expect(subscribeTransactionsInRange).toHaveBeenLastCalledWith(future.from, future.to, expect.any(Function), expect.any(Function))
   })
 
-  describe('on a return to the foreground', () => {
+  describe('as the clock moves on', () => {
     const heading = () => screen.getByRole('heading', { level: 1 })
     /** The phone sat locked: the clock moves on, then the page turns visible again. */
     const resumeAt = (now: Date) => {
@@ -182,6 +182,15 @@ describe('HomePage', () => {
       expect(screen.getByRole('heading', { name: 'Today' })).toBeInTheDocument()
       resumeAt(new Date(2026, 9, 16, 9, 0))
       expect(screen.getByRole('heading', { name: 'Yesterday' })).toBeInTheDocument()
+    })
+
+    it('also moves the day labels on with a snapshot that arrives after midnight in the foreground', () => {
+      vi.setSystemTime(new Date(2026, 9, 15, 23, 50))
+      render(page())
+      deliver([{ ...FLAT_WHITE, date: '2026-10-15' }])
+      vi.setSystemTime(new Date(2026, 9, 16, 0, 10)) // still open on screen: no visibility or focus event
+      deliver([{ ...FLAT_WHITE, id: 't2', date: '2026-10-16' }, { ...FLAT_WHITE, date: '2026-10-15' }]) // an entry added after midnight
+      expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Today', 'Yesterday'])
     })
   })
 })

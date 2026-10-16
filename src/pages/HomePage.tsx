@@ -23,10 +23,11 @@ export function HomePage() {
   useEffect(() => {
     if (followCurrent.current) setMonth(currentMonth()) // a no-op unless the month has turned
   }, [tick])
-  // Recomputed on each return to the foreground, so "Today" and "Yesterday" move on after midnight.
-  const today = useMemo(() => todayIso(), [tick])
   const { from, to } = monthRange(month)
   const { transactions, loading, pending, error } = useTransactions(from, to)
+  // Recomputed on each return to the foreground and with each snapshot (an entry added after midnight with the
+  // app left open), so "Today" and "Yesterday" move on after midnight.
+  const today = useMemo(() => todayIso(), [tick, transactions])
   const { byId } = useCategories()
   const { settings, loading: settingsLoading } = useSettings()
   const { openAdd, openEdit } = useAddSheet()
