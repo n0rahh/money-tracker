@@ -14,12 +14,14 @@ type Props = {
   open: boolean
   kind: Kind
   editing: Category | null
-  /** Active categories of `kind`, sorted by `order` (used for Move up/down and the next order). */
+  /** Active categories of `kind`, sorted by `order` (used for Move up/down). */
   siblings: Category[]
+  /** One past the highest `order` of `kind`, archived included: where new and unarchived categories go. */
+  nextOrder: number
   onClose: () => void
 }
 
-export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Props) {
+export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, onClose }: Props) {
   const { showToast } = useToast()
   const [name, setName] = useState(editing?.name ?? '')
   const [icon, setIcon] = useState<IconKey>(editing?.icon ?? FALLBACK_ICON)
@@ -37,8 +39,7 @@ export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Pr
     if (editing) {
       updateCategory(editing.id, { name: trimmed, icon, color }).catch(fail)
     } else {
-      const order = siblings.reduce((max, c) => Math.max(max, c.order), -1) + 1
-      createCategory({ name: trimmed, icon, color, kind, order, archived: false }).done.catch(fail)
+      createCategory({ name: trimmed, icon, color, kind, order: nextOrder, archived: false }).done.catch(fail)
     }
     onClose()
   }
@@ -51,7 +52,8 @@ export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Pr
 
   function toggleArchived() {
     if (!editing) return
-    updateCategory(editing.id, { archived: !editing.archived }).catch(fail)
+    // Unarchiving moves it last: its old order may now belong to a category created meanwhile.
+    updateCategory(editing.id, editing.archived ? { archived: false, order: nextOrder } : { archived: true }).catch(fail)
     onClose()
   }
 
@@ -82,8 +84,8 @@ export function CategoryEditSheet({ open, kind, editing, siblings, onClose }: Pr
         <IconPicker value={icon} onChange={setIcon} color={CATEGORY_COLORS[color]} />
         {editing ? (
           <div className="flex gap-2">
-            <Button variant="ghost" className="flex-1" disabled={index <= 0} onClick={() => move(-1)}>Move up</Button>
-            <Button variant="ghost" className="flex-1" disabled={index < 0 || index >= siblings.length - 1} onClick={() => move(1)}>Move down</Button>
+            <Button variant="ghost" className="flex-1" aria-label="Move up" disabled={index <= 0} onClick={() => move(-1)}>Up</Button>
+            <Button variant="ghost" className="flex-1" aria-label="Move down" disabled={index < 0 || index >= siblings.length - 1} onClick={() => move(1)}>Down</Button>
             <Button variant={editing.archived ? 'ghost' : 'danger'} className="flex-1" onClick={toggleArchived}>
               {editing.archived ? 'Unarchive' : 'Archive'}
             </Button>

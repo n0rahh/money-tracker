@@ -21,9 +21,10 @@ const { createCategory, updateCategory, swapCategoryOrder } = vi.hoisted(() => (
 vi.mock('../lib/firestore', () => ({ createCategory, updateCategory, swapCategoryOrder }))
 
 const onClose = vi.fn()
+// nextOrder 12, as if archived categories of the kind reach order 11: past the siblings' max + 1 (8) on purpose.
 const sheet = (props: Partial<ComponentProps<typeof CategoryEditSheet>> = {}) => (
   <ToastProvider>
-    <CategoryEditSheet open kind="expense" editing={null} siblings={SIBLINGS} onClose={onClose} {...props} />
+    <CategoryEditSheet open kind="expense" editing={null} siblings={SIBLINGS} nextOrder={12} onClose={onClose} {...props} />
   </ToastProvider>
 )
 
@@ -36,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('CategoryEditSheet', () => {
-  it('creates a category after the last sibling without waiting for the server', async () => {
+  it('creates a category at the next order without waiting for the server', async () => {
     const user = userEvent.setup()
     render(sheet())
     const create = screen.getByRole('button', { name: 'Create' })
@@ -46,16 +47,17 @@ describe('CategoryEditSheet', () => {
     await user.type(screen.getByLabelText('Name'), 'Books ')
     expect(create).toBeEnabled()
     await user.click(create)
-    expect(createCategory).toHaveBeenCalledWith({ name: 'Books', icon: 'CircleEllipsis', color: 'rose', kind: 'expense', order: 8, archived: false })
+    expect(createCategory).toHaveBeenCalledWith({ name: 'Books', icon: 'CircleEllipsis', color: 'rose', kind: 'expense', order: 12, archived: false })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('creates the first category of a kind at order 0', async () => {
+  it('creates a category of its kind at the next order even with no active siblings', async () => {
     const user = userEvent.setup()
-    render(sheet({ kind: 'income', siblings: [] }))
+    // Every income category is archived, the highest at order 3.
+    render(sheet({ kind: 'income', siblings: [], nextOrder: 4 }))
     await user.type(screen.getByLabelText('Name'), 'Salary')
     await user.click(screen.getByRole('button', { name: 'Create' }))
-    expect(createCategory).toHaveBeenCalledWith(expect.objectContaining({ name: 'Salary', kind: 'income', order: 0 }))
+    expect(createCategory).toHaveBeenCalledWith(expect.objectContaining({ name: 'Salary', kind: 'income', order: 4 }))
   })
 
   it('prefills an edit and saves the changed name, colour and icon', async () => {
@@ -96,7 +98,7 @@ describe('CategoryEditSheet', () => {
     expect(screen.getByRole('button', { name: 'Move down' })).toBeDisabled()
   })
 
-  it('archives without waiting for the server and closes', async () => {
+  it('archives, keeping the order, without waiting for the server and closes', async () => {
     const user = userEvent.setup()
     render(sheet({ editing: TAXI }))
     await user.click(screen.getByRole('button', { name: 'Archive' }))
@@ -104,14 +106,18 @@ describe('CategoryEditSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('unarchives an archived category, which cannot be moved while archived', async () => {
-    const user = userEvent.setup()
+  it('cannot move an archived category', () => {
     // Archived categories are not among the active siblings.
     render(sheet({ editing: { ...TAXI, archived: true }, siblings: [GROCERIES, COFFEE] }))
     expect(screen.getByRole('button', { name: 'Move up' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Move down' })).toBeDisabled()
+  })
+
+  it('unarchive assigns the next order', async () => {
+    const user = userEvent.setup()
+    render(sheet({ editing: { ...TAXI, archived: true }, siblings: [GROCERIES, COFFEE] }))
     await user.click(screen.getByRole('button', { name: 'Unarchive' }))
-    expect(updateCategory).toHaveBeenCalledWith('c3', { archived: false })
+    expect(updateCategory).toHaveBeenCalledWith('c3', { archived: false, order: 12 })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 

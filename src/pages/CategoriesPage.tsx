@@ -16,6 +16,8 @@ export function CategoriesPage() {
 
   const active = categories.filter((c) => c.kind === kind && !c.archived).sort((a, b) => a.order - b.order)
   const archived = categories.filter((c) => c.kind === kind && c.archived)
+  // Archived ones count too, so a new or unarchived category never shares an order (a swap of equal orders does nothing).
+  const nextOrder = categories.reduce((max, c) => (c.kind === kind ? Math.max(max, c.order) : max), -1) + 1
   const open = (editing: Category | null) => setSheet((s) => ({ open: true, editing, nonce: s.nonce + 1 }))
   const close = () => setSheet((s) => ({ ...s, open: false }))
 
@@ -41,7 +43,7 @@ export function CategoriesPage() {
       <ul className="mt-4 overflow-hidden rounded-card bg-surface">{active.map(row)}</ul>
       {archived.length > 0 ? (
         <details className="mt-4">
-          <summary className="cursor-pointer px-1 text-xs font-semibold uppercase tracking-wider text-muted">Archived ({archived.length})</summary>
+          <summary className="flex min-h-11 cursor-pointer items-center px-1 text-xs font-semibold uppercase tracking-wider text-muted">Archived ({archived.length})</summary>
           <ul className="mt-2 overflow-hidden rounded-card bg-surface opacity-70">{archived.map(row)}</ul>
         </details>
       ) : null}
@@ -51,6 +53,7 @@ export function CategoriesPage() {
         kind={kind}
         editing={sheet.editing}
         siblings={active}
+        nextOrder={nextOrder}
         onClose={close}
       />
     </>
