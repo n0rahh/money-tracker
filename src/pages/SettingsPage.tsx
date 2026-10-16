@@ -6,12 +6,24 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { useSettings } from '../hooks/useSettings'
 import { saveSettings } from '../lib/firestore'
+import { minorUnitDigits } from '../lib/money'
+
+const DECIMALS_WARNING =
+  'Switching between currencies with a different number of decimals changes how stored amounts are read (for example 12.50 becomes ¥1,250). Continue?'
 
 export function SettingsPage() {
   const { user, logOut } = useAuth()
   const { settings } = useSettings()
   const { showToast } = useToast()
   const [currencyOpen, setCurrencyOpen] = useState(false)
+
+  function chooseCurrency(code: string) {
+    const current = settings?.currency
+    // Amounts are stored in minor units of whatever currency is set, so a different scale re-reads every stored amount.
+    if (current && minorUnitDigits(current) !== minorUnitDigits(code) && !window.confirm(DECIMALS_WARNING)) return
+    saveSettings({ currency: code, locale: settings?.locale ?? null }).catch((e: unknown) => showToast(e instanceof Error ? e.message : 'Could not save'))
+    setCurrencyOpen(false)
+  }
 
   return (
     <>
@@ -37,12 +49,9 @@ export function SettingsPage() {
           open
           current={settings?.currency ?? null}
           title="Currency"
-          note="Changing the currency only changes the symbol and formatting. Existing amounts are not converted."
+          note="Changing the currency changes the symbol and formatting. Amounts are not converted."
           onClose={() => setCurrencyOpen(false)}
-          onSelect={(code) => {
-            saveSettings({ currency: code, locale: settings?.locale ?? null }).catch((e: unknown) => showToast(e instanceof Error ? e.message : 'Could not save'))
-            setCurrencyOpen(false)
-          }}
+          onSelect={chooseCurrency}
         />
       ) : null}
     </>

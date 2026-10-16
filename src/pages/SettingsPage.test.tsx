@@ -75,7 +75,7 @@ describe('SettingsPage', () => {
       page()
       await user.click(screen.getByRole('button', { name: /^Currency/ }))
       const dialog = screen.getByRole('dialog', { name: 'Currency' })
-      expect(within(dialog).getByText(/not converted/)).toBeInTheDocument()
+      expect(within(dialog).getByText('Changing the currency changes the symbol and formatting. Amounts are not converted.')).toBeInTheDocument()
 
       await user.click(within(dialog).getByRole('button', { name: /^Euro/ }))
       expect(saveSettings).toHaveBeenCalledWith({ currency: 'EUR', locale: null })
@@ -123,6 +123,40 @@ describe('SettingsPage', () => {
       await user.click(screen.getByRole('button', { name: /^Euro/ }))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       expect(await screen.findByRole('status')).toHaveTextContent(shown)
+    })
+
+    describe('with a different number of decimals', () => {
+      const WARNING =
+        'Switching between currencies with a different number of decimals changes how stored amounts are read (for example 12.50 becomes ¥1,250). Continue?'
+      const choose = async (name: RegExp) => {
+        const user = userEvent.setup()
+        page()
+        await user.click(screen.getByRole('button', { name: /^Currency/ }))
+        await user.click(screen.getByRole('button', { name }))
+      }
+
+      it('does not ask when the decimals match (PLN → EUR)', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+        await choose(/^Euro/)
+        expect(confirm).not.toHaveBeenCalled()
+        expect(saveSettings).toHaveBeenCalledWith({ currency: 'EUR', locale: null })
+      })
+
+      it('asks first and keeps the currency when cancelled (PLN → JPY)', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        await choose(/^Japanese yen/)
+        expect(confirm).toHaveBeenCalledWith(WARNING)
+        expect(saveSettings).not.toHaveBeenCalled()
+        expect(screen.getByRole('dialog', { name: 'Currency' })).toBeInTheDocument() // still open to pick another
+      })
+
+      it('saves once confirmed (PLN → JPY)', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+        await choose(/^Japanese yen/)
+        expect(confirm).toHaveBeenCalledWith(WARNING)
+        expect(saveSettings).toHaveBeenCalledWith({ currency: 'JPY', locale: null })
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      })
     })
   })
 
