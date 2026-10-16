@@ -194,7 +194,7 @@ Full-height bottom sheet, opens in ≈180 ms:
 3. **Date chips**: Today · Yesterday · Pick… (native date input). Default Today.
 4. **Note** field (optional, 16 px font so iOS does not zoom).
 5. **Category grid**: 2 horizontally scrolling rows of chips (icon + name) in category colors; most-recently used first; selected chip is filled.
-6. **Save** button reads "Add €12.50 to Groceries" and is disabled until amount > 0 and a category is chosen.
+6. **Save** button reads "Add €12.50 · Groceries" and is disabled until amount > 0 and a category is chosen. The keypad and the Save button are fixed at the bottom of the sheet and the amount stays pinned at the top; only the date, note and category rows scroll on short phones.
 7. Edit mode: same sheet prefilled, with Delete (confirm) in the header.
 8. (M2) **Suggestion chips** above the keypad: the 4 most frequent (category, amount, note) combos of the last 60 days, e.g. "☕ Coffee €3.50". One tap fills everything; Save confirms.
 

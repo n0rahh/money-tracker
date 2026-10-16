@@ -534,7 +534,7 @@ git commit -m "feat: domain types, category palette, icon map and default catego
 
 **Interfaces:**
 - Consumes: `Transaction` from Task 2.
-- Produces: `Button({ variant?: 'primary'|'ghost'|'danger', ...buttonProps })`; `Sheet({ open, title, onClose, children, footer?, full?, headerRight?, dismissible? })`; `ToastProvider`, `useToast(): { showToast(message: string): void }`; `AddSheetProvider`, `useAddSheet(): { state: { open: boolean; editing: Transaction | null }; openAdd(): void; openEdit(tx: Transaction): void; close(): void }`; `AppShell` route layout with bottom tabs and the floating + button; placeholder pages replaced in Tasks 13–15. Tailwind tokens `bg-bg`, `bg-surface`, `bg-surface-2`, `border-border`, `text-text`, `text-muted`, `bg-accent`, `text-accent-ink`, `text-expense`, `text-danger`, `rounded-card`, `rounded-chip`, helper classes `tnum`, `safe-pt`, `safe-pb`.
+- Produces: `Button({ variant?: 'primary'|'ghost'|'danger', ...buttonProps })`; `Sheet({ open, title, onClose, children, footer?, full?, headerRight?, dismissible? })`; `ToastProvider`, `useToast(): { showToast(message: string): void }`; `AddSheetProvider`, `useAddSheet(): { state: { open: boolean; editing: Transaction | null }; openAdd(): void; openEdit(tx: Transaction): void; close(): void; lastKind: Kind; rememberKind(kind: Kind): void }`; `AppShell` route layout with bottom tabs and the floating + button; placeholder pages replaced in Tasks 13–15. Tailwind tokens `bg-bg`, `bg-surface`, `bg-surface-2`, `border-border`, `text-text`, `text-muted`, `bg-accent`, `text-accent-ink`, `text-expense`, `text-danger`, `rounded-card`, `rounded-chip`, helper classes `tnum`, `safe-pt`, `safe-pb`.
 
 - [ ] **Step 1: Write the failing Button test** (`src/components/Button.test.tsx`)
 
@@ -585,6 +585,9 @@ Run: `npx vitest run src/components` → Expected: FAIL (module not found).
   --radius-card: 20px;
   --radius-chip: 14px;
 }
+
+@custom-variant short (@media (max-height: 700px));
+@custom-variant tiny (@media (max-height: 480px));
 
 html, body, #root { height: 100%; }
 
@@ -694,12 +697,14 @@ type Props = {
   headerRight?: ReactNode
   /** When false, no close button and the backdrop does not close (first-run flows). */
   dismissible?: boolean
+  /** Extra classes for the scrolling body, e.g. scroll padding under a sticky block. */
+  bodyClassName?: string
 }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function Sheet({ open, title, onClose, children, footer, full = false, headerRight, dismissible = true }: Props) {
+export function Sheet({ open, title, onClose, children, footer, full = false, headerRight, dismissible = true, bodyClassName = '' }: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
 
@@ -769,7 +774,7 @@ export function Sheet({ open, title, onClose, children, footer, full = false, he
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`relative z-10 flex w-full max-w-lg flex-col border border-border bg-surface outline-none! transition-transform duration-200 ease-out starting:translate-y-full md:starting:translate-y-4 ${shape}`}
+        className={`relative z-10 flex w-full max-w-lg flex-col border border-border bg-surface outline-none! transition-transform duration-200 ease-out starting:translate-y-full md:starting:translate-y-4 tiny:overflow-y-auto ${shape}`}
       >
         <div className="safe-pt flex items-center justify-between px-4 pb-2">
           <h2 id={titleId} className="text-lg font-semibold">{title}</h2>
@@ -782,7 +787,8 @@ export function Sheet({ open, title, onClose, children, footer, full = false, he
             ) : null}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-4 pb-4">{children}</div>
+        {/* At 480 px of height or less (landscape phones) the whole card scrolls: a tall footer would otherwise squeeze the body to nothing. */}
+        <div className={`flex-1 overflow-y-auto px-4 pb-4 tiny:flex-none tiny:overflow-visible ${bodyClassName}`}>{children}</div>
         {footer ? <div className="safe-pb border-t border-border px-4 pt-3">{footer}</div> : null}
       </div>
     </div>
@@ -834,7 +840,7 @@ export function useToast(): ToastApi {
 
 ```tsx
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import type { Transaction } from '../lib/types'
+import type { Kind, Transaction } from '../lib/types'
 
 export type AddSheetState = { open: boolean; editing: Transaction | null }
 type AddSheetApi = {
@@ -842,15 +848,23 @@ type AddSheetApi = {
   openAdd: () => void
   openEdit: (tx: Transaction) => void
   close: () => void
+  /** Kind of the last saved entry this session; a new entry starts with it (spec §7). */
+  lastKind: Kind
+  rememberKind: (kind: Kind) => void
 }
 const AddSheetContext = createContext<AddSheetApi | null>(null)
 
 export function AddSheetProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AddSheetState>({ open: false, editing: null })
+  const [lastKind, setLastKind] = useState<Kind>('expense')
   const openAdd = useCallback(() => setState({ open: true, editing: null }), [])
   const openEdit = useCallback((tx: Transaction) => setState({ open: true, editing: tx }), [])
   const close = useCallback(() => setState((s) => ({ ...s, open: false })), [])
-  const api = useMemo(() => ({ state, openAdd, openEdit, close }), [state, openAdd, openEdit, close])
+  const rememberKind = useCallback((kind: Kind) => setLastKind(kind), [])
+  const api = useMemo(
+    () => ({ state, openAdd, openEdit, close, lastKind, rememberKind }),
+    [state, openAdd, openEdit, close, lastKind, rememberKind],
+  )
   return <AddSheetContext.Provider value={api}>{children}</AddSheetContext.Provider>
 }
 
@@ -2819,59 +2833,59 @@ git commit -m "feat: keypad and amount display components"
 import { Timestamp } from 'firebase/firestore'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSheetProvider, useAddSheet } from '../context/AddSheetContext'
 import { ToastProvider } from '../context/ToastContext'
 import { todayIso } from '../lib/dates'
-import type { Category } from '../lib/types'
+import type { Category, Transaction } from '../lib/types'
 import { AddTransactionSheet } from './AddTransactionSheet'
 
 const CATS: Category[] = [
   { id: 'c1', name: 'Coffee', icon: 'Coffee', color: 'amber', kind: 'expense', order: 0, archived: false },
   { id: 'c2', name: 'Salary', icon: 'Banknote', color: 'emerald', kind: 'income', order: 0, archived: false },
 ]
+const FLAT_WHITE: Transaction = { id: 't9', kind: 'expense', amount: 350, categoryId: 'c1', note: 'flat white', date: '2026-10-01', at: Timestamp.fromDate(new Date(2026, 9, 1, 12)), source: 'app' }
+const YEN_COFFEE: Transaction = { ...FLAT_WHITE, id: 't10', amount: 1200, note: '' }
 
-const { createTransaction, updateTransaction, deleteTransaction } = vi.hoisted(() => ({
+const { createTransaction, updateTransaction, deleteTransaction, useSettings } = vi.hoisted(() => ({
   createTransaction: vi.fn(),
   updateTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
+  useSettings: vi.fn(),
 }))
 vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction }))
 vi.mock('../hooks/useCategories', () => ({
   useCategories: () => ({ categories: CATS, byId: new Map(CATS.map((c) => [c.id, c])), loading: false, error: null }),
 }))
-vi.mock('../hooks/useSettings', () => ({
-  useSettings: () => ({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null }),
-}))
+vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useTransactions', () => ({
   useTransactions: () => ({ transactions: [], loading: false, error: null }),
 }))
 
-function Harness() {
+function Harness({ edit = FLAT_WHITE }: { edit?: Transaction }) {
   const { state, openAdd, openEdit } = useAddSheet()
   return (
     <>
       {!state.open ? <button onClick={openAdd}>open-add</button> : null}
-      {!state.open ? (
-        <button
-          onClick={() =>
-            openEdit({ id: 't9', kind: 'expense', amount: 350, categoryId: 'c1', note: 'flat white', date: '2026-10-01', at: Timestamp.fromDate(new Date(2026, 9, 1, 12)), source: 'app' })
-          }
-        >
-          open-edit
-        </button>
-      ) : null}
+      {!state.open ? <button onClick={() => openEdit(edit)}>open-edit</button> : null}
       <AddTransactionSheet />
     </>
   )
 }
 
-const setup = () => render(<ToastProvider><AddSheetProvider><Harness /></AddSheetProvider></ToastProvider>)
+const app = (edit?: Transaction) => <ToastProvider><AddSheetProvider><Harness edit={edit} /></AddSheetProvider></ToastProvider>
+const setup = () => render(app())
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null })
   createTransaction.mockReturnValue({ id: 'new', done: new Promise<void>(() => {}) }) // never resolves: offline
   updateTransaction.mockReturnValue(new Promise<void>(() => {}))
+  deleteTransaction.mockReturnValue(new Promise<void>(() => {}))
+})
+
+afterEach(() => {
+  vi.restoreAllMocks() // the window.confirm spies
 })
 
 describe('AddTransactionSheet', () => {
@@ -2920,6 +2934,107 @@ describe('AddTransactionSheet', () => {
     await user.click(screen.getByRole('button', { name: /save €35\.00 · coffee/i }))
     expect(updateTransaction).toHaveBeenCalledWith('t9', expect.objectContaining({ amount: 3500, categoryId: 'c1', note: 'flat white', date: '2026-10-01' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('remembers the last kind within the session', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('radio', { name: 'Income' }))
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Salary' }))
+    await user.click(screen.getByRole('button', { name: /add €5\.00 · salary/i }))
+    await user.click(screen.getByText('open-add'))
+    expect(screen.getByRole('radio', { name: 'Income' })).toBeChecked()
+  })
+
+  it("a session's first Add opens on Expense", async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    expect(screen.getByRole('radio', { name: 'Expense' })).toBeChecked()
+  })
+
+  it('clears a category of the other kind when switching', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await user.click(screen.getByRole('radio', { name: 'Income' }))
+    expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
+    // Back on Expense, Coffee stays cleared: the selection was dropped, not just hidden.
+    await user.click(screen.getByRole('radio', { name: 'Expense' }))
+    expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
+  })
+
+  it('keeps the stored `at` when the date is unchanged and drops it when it changes', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: /save €3\.50 · coffee/i }))
+    expect(updateTransaction).toHaveBeenNthCalledWith(1, 't9', expect.objectContaining({ date: '2026-10-01', at: new Date(2026, 9, 1, 12) }))
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Today' }))
+    await user.click(screen.getByRole('button', { name: /save €3\.50 · coffee/i }))
+    expect(updateTransaction).toHaveBeenNthCalledWith(2, 't9', expect.objectContaining({ date: todayIso(), at: undefined }))
+  })
+
+  it('trims the note', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    await user.type(screen.getByLabelText('Note'), '  latte  ')
+    await user.click(screen.getByRole('button', { name: /add €5\.00 · coffee/i }))
+    expect(createTransaction).toHaveBeenCalledWith(expect.objectContaining({ note: 'latte' }))
+  })
+
+  it('waits for settings before seeding an edit', async () => {
+    useSettings.mockReturnValue({ settings: null, loading: true, fromCache: true, error: null })
+    const user = userEvent.setup()
+    const { rerender } = render(app(YEN_COFFEE))
+    await user.click(screen.getByText('open-edit'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    useSettings.mockReturnValue({ settings: { currency: 'JPY', locale: 'en' }, loading: false, fromCache: false, error: null })
+    rerender(app(YEN_COFFEE))
+    expect(screen.getByTestId('amount-expr')).toHaveTextContent('1200')
+    expect(screen.getByRole('button', { name: /save ¥1,200 · coffee/i })).toBeInTheDocument()
+  })
+
+  it('keeps the transaction when the delete is not confirmed', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(window.confirm).toHaveBeenCalledWith('Delete this transaction?')
+    expect(deleteTransaction).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('deletes after confirmation without waiting for the server', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(deleteTransaction).toHaveBeenCalledWith('t9')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('reports a failed save in a toast after the sheet has closed', async () => {
+    // Built on call, so the rejection gets its handler in the tick it is created.
+    createTransaction.mockImplementation(() => ({ id: 'new', done: Promise.reject(new Error('denied')) }))
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    await user.click(screen.getByRole('button', { name: /add €5\.00 · coffee/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(await screen.findByText(/could not save: denied/i)).toBeInTheDocument()
   })
 })
 ```
@@ -3049,7 +3164,7 @@ import { createTransaction, deleteTransaction, updateTransaction } from '../lib/
 import { EMPTY_KEYPAD, keypadFromMinor, keypadMinor, pressKey, type KeypadState } from '../lib/keypad'
 import { formatMoney, minorUnitDigits } from '../lib/money'
 import { orderCategoriesByRecency } from '../lib/stats'
-import type { IsoDate, Kind, Transaction } from '../lib/types'
+import type { IsoDate, Kind, Settings, Transaction } from '../lib/types'
 import { AmountDisplay } from './AmountDisplay'
 import { Button } from './Button'
 import { CategoryChip } from './CategoryChip'
@@ -3059,16 +3174,35 @@ import { SegmentedControl } from './SegmentedControl'
 import { Sheet } from './Sheet'
 
 export function AddTransactionSheet() {
-  const { state, close } = useAddSheet()
-  if (!state.open) return null
+  const { state, close, lastKind, rememberKind } = useAddSheet()
+  // Read before the early return and waited for: the currency fixes the keypad's decimal digits when an edit is seeded.
+  const { settings, loading } = useSettings()
+  if (!state.open || loading) return null
   // key resets all form state for every open
-  return <AddTransactionForm key={state.editing?.id ?? 'new'} editing={state.editing} onClose={close} />
+  return (
+    <AddTransactionForm
+      key={state.editing?.id ?? 'new'}
+      editing={state.editing}
+      settings={settings}
+      lastKind={lastKind}
+      rememberKind={rememberKind}
+      onClose={close}
+    />
+  )
 }
 
-function AddTransactionForm({ editing, onClose }: { editing: Transaction | null; onClose: () => void }) {
+type FormProps = {
+  editing: Transaction | null
+  /** null only while no settings document exists yet (first run). */
+  settings: Settings | null
+  lastKind: Kind
+  rememberKind: (kind: Kind) => void
+  onClose: () => void
+}
+
+function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose }: FormProps) {
   const { showToast } = useToast()
   const { categories } = useCategories()
-  const { settings } = useSettings()
   const { from, to } = monthRange(currentMonth())
   const { transactions: recent } = useTransactions(from, to)
 
@@ -3076,7 +3210,7 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
   const locale = settings?.locale ?? null
   const digits = minorUnitDigits(currency)
 
-  const [kind, setKind] = useState<Kind>(editing?.kind ?? 'expense')
+  const [kind, setKind] = useState<Kind>(editing?.kind ?? lastKind)
   const [keypad, setKeypad] = useState<KeypadState>(() => (editing ? keypadFromMinor(editing.amount, digits) : EMPTY_KEYPAD))
   const [categoryId, setCategoryId] = useState<string | null>(editing?.categoryId ?? null)
   const [date, setDate] = useState<IsoDate>(editing?.date ?? todayIso())
@@ -3100,6 +3234,7 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       ? updateTransaction(editing.id, { ...input, at: editing.date === date ? editing.at.toDate() : undefined })
       : createTransaction(input).done
     pending.catch(fail('Could not save'))
+    rememberKind(kind)
     onClose() // never wait for the server: the local cache already applied the write
   }
 
@@ -3119,6 +3254,8 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       full
       title={editing ? 'Edit' : 'Add'}
       onClose={onClose}
+      // sticky amount block (162 px) + 8 px = 10.625rem, so a focused field is never scrolled in behind it; no block to clear once it is static
+      bodyClassName="scroll-pt-[10.625rem] short:scroll-pt-0"
       headerRight={
         editing ? (
           <button type="button" aria-label="Delete" onClick={remove} className="flex size-11 items-center justify-center rounded-full bg-danger/15 text-danger">
@@ -3127,14 +3264,20 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
         ) : null
       }
       footer={
-        <Button className="w-full" disabled={!canSave} onClick={save}>
-          {saveLabel}
-        </Button>
+        <div className="flex flex-col gap-3">
+          <Keypad onPress={(k) => setKeypad((s) => pressKey(s, k, digits))} disableDecimal={digits === 0} />
+          <Button className="w-full" disabled={!canSave} onClick={save}>
+            {saveLabel}
+          </Button>
+        </div>
       }
     >
       <div className="flex flex-col gap-3">
-        <SegmentedControl ariaLabel="Kind" value={kind} onChange={setKind} options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
-        <AmountDisplay state={keypad} currency={currency} locale={locale} kind={kind} />
+        {/* Stays in view while the date, note and categories scroll beneath it; below 700 px of height it scrolls with them so the chips stay reachable. */}
+        <div className="sticky top-0 z-10 -mx-4 bg-surface px-4 pb-2 flex flex-col gap-3 short:static">
+          <SegmentedControl ariaLabel="Kind" value={kind} onChange={setKind} options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
+          <AmountDisplay state={keypad} currency={currency} locale={locale} kind={kind} />
+        </div>
         <DateChips value={date} onChange={setDate} />
         <input
           value={note}
@@ -3144,14 +3287,13 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
           aria-label="Note"
           className="min-h-11 rounded-chip border border-border bg-surface-2 px-3 text-text placeholder:text-muted"
         />
-        <div className="-mx-4 overflow-x-auto px-4" aria-label="Category">
+        <div role="group" className="-mx-4 overflow-x-auto px-4" aria-label="Category">
           <div className="grid grid-flow-col grid-rows-2 gap-2">
             {ordered.map((c) => (
               <CategoryChip key={c.id} category={c} selected={c.id === categoryId} onClick={() => setCategoryId(c.id)} />
             ))}
           </div>
         </div>
-        <Keypad onPress={(k) => setKeypad((s) => pressKey(s, k, digits))} disableDecimal={digits === 0} />
       </div>
     </Sheet>
   )
@@ -3171,7 +3313,7 @@ and render it as the last child of the outer `<div className="min-h-dvh bg-bg te
 
 - [ ] **Step 7: Verify and commit**
 
-Run: `npx vitest run src/components && npm run typecheck` → Expected: all PASS (4 sheet tests).
+Run: `npx vitest run src/components && npm run typecheck` → Expected: all PASS (13 sheet tests).
 
 Run: `npm run dev` → sign in → press + → type `12.5 + 3`, pick a category, Save → the sheet closes instantly (the Home page is still a placeholder; the document appears in Firebase Console → Firestore).
 
