@@ -36,6 +36,10 @@ describe('totalsByCategory', () => {
       { categoryId: 'a', total: 100, count: 1, share: 0.2 },
     ])
   })
+  it('breaks total ties by categoryId', () => {
+    const rows = totalsByCategory([tx({ amount: 100, categoryId: 'b' }), tx({ amount: 100, categoryId: 'a' })], 'expense')
+    expect(rows.map((r) => r.categoryId)).toEqual(['a', 'b'])
+  })
   it('returns an empty list when nothing matches', () => expect(totalsByCategory([], 'income')).toEqual([]))
 })
 
@@ -45,6 +49,7 @@ describe('totalsByDay', () => {
     expect(days).toHaveLength(31)
     expect(days[0]).toBe(7)
     expect(days[13]).toBe(150)
+    expect(days[29]).toBe(0) // the 2026-09-30 fixture must be excluded: it would land at index 29 if the month filter were missing
     expect(days[30]).toBe(0)
   })
 })
@@ -64,13 +69,14 @@ describe('groupByDay', () => {
 
 describe('orderCategoriesByRecency', () => {
   it('puts recently used first, then by order; excludes archived and other kinds', () => {
-    const cats = [cat('a', 0), cat('b', 1), cat('c', 2), cat('old', 3, { archived: true }), cat('inc', 0, { kind: 'income' })]
+    // 'd' is listed before 'a' on purpose: the two unused categories must fall back to `order` (a: 0, d: 4), not to input order
+    const cats = [cat('d', 4), cat('a', 0), cat('b', 1), cat('c', 2), cat('old', 3, { archived: true }), cat('inc', 0, { kind: 'income' })]
     const txs = [
       tx({ amount: 1, categoryId: 'c', at: Timestamp.fromDate(new Date(2026, 9, 14, 9)) }),
       tx({ amount: 1, categoryId: 'b', at: Timestamp.fromDate(new Date(2026, 9, 14, 11)) }),
       tx({ amount: 1, categoryId: 'old', at: Timestamp.fromDate(new Date(2026, 9, 14, 12)) }),
     ]
-    expect(orderCategoriesByRecency(cats, txs, 'expense').map((c) => c.id)).toEqual(['b', 'c', 'a'])
+    expect(orderCategoriesByRecency(cats, txs, 'expense').map((c) => c.id)).toEqual(['b', 'c', 'a', 'd'])
     expect(orderCategoriesByRecency(cats, [], 'income').map((c) => c.id)).toEqual(['inc'])
   })
 })

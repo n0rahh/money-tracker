@@ -36,12 +36,14 @@ describe('keypadMinor', () => {
     expect(keypadMinor(EMPTY_KEYPAD)).toBe(0)
   })
   it('clamps negative results to zero', () => expect(keypadMinor(press('10-15'))).toBe(0))
+  it('caps the evaluated amount at 99,999,999,999', () => expect(keypadMinor(press('999999999+999999999'))).toBe(99_999_999_999))
 })
 
 describe('helpers', () => {
   it('hasOperator', () => {
     expect(hasOperator(press('12'))).toBe(false)
     expect(hasOperator(press('12+3'))).toBe(true)
+    expect(hasOperator(press('5-1'))).toBe(true)
   })
   it('keypadFromMinor prefills for editing without trailing zeros', () => {
     expect(keypadFromMinor(1250, 2).expr).toBe('12.5')
