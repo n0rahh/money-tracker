@@ -2,6 +2,7 @@ import { House, Plus, Settings, Tags } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAddSheet } from '../context/AddSheetContext'
 import { AddTransactionSheet } from './AddTransactionSheet'
+import { FirstRunGate } from './FirstRunGate'
 
 const links = [
   { to: '/', label: 'Home', icon: House, end: true },
@@ -71,6 +72,7 @@ export function AppShell() {
         </div>
       </div>
       <AddTransactionSheet />
+      <FirstRunGate />
     </div>
   )
 }
