@@ -56,11 +56,13 @@ beforeEach(() => {
   updateTransaction.mockReturnValue(new Promise<void>(() => {}))
 })
 
+// The sheet remembers the last saved kind for the whole session (module state), so tests that rely on the starting kind pick Expense explicitly.
 describe('AddTransactionSheet', () => {
   it('adds an expense without waiting for the server', async () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('radio', { name: 'Expense' }))
     expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: '1' }))
     await user.click(screen.getByRole('button', { name: '2' }))
@@ -76,6 +78,7 @@ describe('AddTransactionSheet', () => {
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('radio', { name: 'Expense' }))
     await user.click(screen.getByRole('button', { name: 'Coffee' }))
     for (const key of ['5', 'Minus', '9']) await user.click(screen.getByRole('button', { name: key }))
     expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
@@ -102,5 +105,55 @@ describe('AddTransactionSheet', () => {
     await user.click(screen.getByRole('button', { name: /save €35\.00 · coffee/i }))
     expect(updateTransaction).toHaveBeenCalledWith('t9', expect.objectContaining({ amount: 3500, categoryId: 'c1', note: 'flat white', date: '2026-10-01' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('remembers the last kind within the session', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('radio', { name: 'Income' }))
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Salary' }))
+    await user.click(screen.getByRole('button', { name: /add €5\.00 · salary/i }))
+    await user.click(screen.getByText('open-add'))
+    expect(screen.getByRole('radio', { name: 'Income' })).toBeChecked()
+  })
+
+  it('clears a category of the other kind when switching', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('radio', { name: 'Expense' }))
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    await user.click(screen.getByRole('button', { name: '1' }))
+    await user.click(screen.getByRole('radio', { name: 'Income' }))
+    expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
+    // Back on Expense, Coffee stays cleared: the selection was dropped, not just hidden.
+    await user.click(screen.getByRole('radio', { name: 'Expense' }))
+    expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
+  })
+
+  it('keeps the stored `at` when the date is unchanged and drops it when it changes', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: /save €3\.50 · coffee/i }))
+    expect(updateTransaction).toHaveBeenNthCalledWith(1, 't9', expect.objectContaining({ date: '2026-10-01', at: new Date(2026, 9, 1, 12) }))
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Today' }))
+    await user.click(screen.getByRole('button', { name: /save €3\.50 · coffee/i }))
+    expect(updateTransaction).toHaveBeenNthCalledWith(2, 't9', expect.objectContaining({ date: todayIso(), at: undefined }))
+  })
+
+  it('trims the note', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-add'))
+    await user.click(screen.getByRole('radio', { name: 'Expense' }))
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    await user.type(screen.getByLabelText('Note'), '  latte  ')
+    await user.click(screen.getByRole('button', { name: /add €5\.00 · coffee/i }))
+    expect(createTransaction).toHaveBeenCalledWith(expect.objectContaining({ note: 'latte' }))
   })
 })

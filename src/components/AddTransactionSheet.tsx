@@ -19,6 +19,9 @@ import { Keypad } from './Keypad'
 import { SegmentedControl } from './SegmentedControl'
 import { Sheet } from './Sheet'
 
+/** Kind of the last saved entry; a new entry starts with it for the rest of the session (spec §7). */
+let lastKind: Kind = 'expense'
+
 export function AddTransactionSheet() {
   const { state, close } = useAddSheet()
   if (!state.open) return null
@@ -37,7 +40,7 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
   const locale = settings?.locale ?? null
   const digits = minorUnitDigits(currency)
 
-  const [kind, setKind] = useState<Kind>(editing?.kind ?? 'expense')
+  const [kind, setKind] = useState<Kind>(editing?.kind ?? lastKind)
   const [keypad, setKeypad] = useState<KeypadState>(() => (editing ? keypadFromMinor(editing.amount, digits) : EMPTY_KEYPAD))
   const [categoryId, setCategoryId] = useState<string | null>(editing?.categoryId ?? null)
   const [date, setDate] = useState<IsoDate>(editing?.date ?? todayIso())
@@ -61,6 +64,7 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
       ? updateTransaction(editing.id, { ...input, at: editing.date === date ? editing.at.toDate() : undefined })
       : createTransaction(input).done
     pending.catch(fail('Could not save'))
+    lastKind = kind
     onClose() // never wait for the server: the local cache already applied the write
   }
 
@@ -88,14 +92,20 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
         ) : null
       }
       footer={
-        <Button className="w-full" disabled={!canSave} onClick={save}>
-          {saveLabel}
-        </Button>
+        <div className="flex flex-col gap-3">
+          <Keypad onPress={(k) => setKeypad((s) => pressKey(s, k, digits))} disableDecimal={digits === 0} />
+          <Button className="w-full" disabled={!canSave} onClick={save}>
+            {saveLabel}
+          </Button>
+        </div>
       }
     >
       <div className="flex flex-col gap-3">
-        <SegmentedControl ariaLabel="Kind" value={kind} onChange={setKind} options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
-        <AmountDisplay state={keypad} currency={currency} locale={locale} kind={kind} />
+        {/* Stays in view while the date, note and categories scroll beneath it. */}
+        <div className="sticky top-0 z-10 -mx-4 bg-surface px-4 pb-2 flex flex-col gap-3">
+          <SegmentedControl ariaLabel="Kind" value={kind} onChange={setKind} options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
+          <AmountDisplay state={keypad} currency={currency} locale={locale} kind={kind} />
+        </div>
         <DateChips value={date} onChange={setDate} />
         <input
           value={note}
@@ -112,7 +122,6 @@ function AddTransactionForm({ editing, onClose }: { editing: Transaction | null;
             ))}
           </div>
         </div>
-        <Keypad onPress={(k) => setKeypad((s) => pressKey(s, k, digits))} disableDecimal={digits === 0} />
       </div>
     </Sheet>
   )
