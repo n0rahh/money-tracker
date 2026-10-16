@@ -34,7 +34,8 @@ export function CategoriesPage() {
     <>
       <div className="flex items-center justify-between py-3">
         <h1 className="text-lg font-semibold">Categories</h1>
-        <Button variant="ghost" onClick={() => open(null)}>
+        {/* Disabled until the first snapshot: nextOrder computed from an empty list would reuse order 0. */}
+        <Button variant="ghost" disabled={loading} onClick={() => open(null)}>
           <Plus size={18} /> New
         </Button>
       </div>

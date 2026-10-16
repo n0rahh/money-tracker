@@ -52,7 +52,7 @@ export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, on
 
   function toggleArchived() {
     if (!editing) return
-    // Unarchiving moves it last: its old order may now belong to a category created meanwhile.
+    // Product choice: an unarchived category reappears at the bottom with a fresh unique order (its old slot is not restored).
     updateCategory(editing.id, editing.archived ? { archived: false, order: nextOrder } : { archived: true }).catch(fail)
     onClose()
   }

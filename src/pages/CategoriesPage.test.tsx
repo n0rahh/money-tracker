@@ -47,6 +47,16 @@ describe('CategoriesPage', () => {
     expect(updateCategory).toHaveBeenCalledWith('c3', { archived: false, order: 6 })
   })
 
+  it('offers New only once the categories have loaded', () => {
+    useCategories.mockReturnValue({ categories: [], byId: new Map(), loading: true, error: null })
+    const { rerender } = page()
+    expect(screen.getByRole('button', { name: 'New' })).toBeDisabled() // an empty list would hand out order 0 again
+
+    withCategories([GROCERIES, COFFEE, OTHER, SALARY])
+    rerender(<ToastProvider><CategoriesPage /></ToastProvider>)
+    expect(screen.getByRole('button', { name: 'New' })).toBeEnabled()
+  })
+
   it('starts a kind without categories at order 0', async () => {
     const user = userEvent.setup()
     withCategories([GROCERIES, COFFEE, OTHER])
