@@ -49,13 +49,20 @@ describe('insight date helpers', () => {
     expect(monthsBetween('2026-03', '2026-03')).toEqual(['2026-03'])
     expect(monthsBetween('2026-04', '2026-03')).toEqual([])
   })
+  it('returns an empty list for a malformed month instead of looping', () => {
+    expect(monthsBetween('2026-01', 'zz')).toEqual([])
+    expect(monthsBetween('zz', '2026-01')).toEqual([])
+  })
   it('lists year-to-date months', () => {
     expect(yearToDateMonths(new Date(2026, 9, 17))).toEqual(['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'])
     expect(yearToDateMonths(new Date(2026, 0, 3))).toEqual(['2026-01'])
   })
   it('labels months short, with the year only when it differs from the current one', () => {
-    const thisYear = new Date().getFullYear()
-    expect(monthShortLabel(`${thisYear}-10`, 'en')).toBe('Oct')
-    expect(monthShortLabel('2019-03', 'en')).toBe('Mar 19')
+    const now = new Date(2026, 5, 1)
+    expect(monthShortLabel('2026-10', 'en', now)).toBe('Oct')
+    expect(monthShortLabel('2025-10', 'en', now)).toBe('Oct 25')
+    expect(monthShortLabel('2019-03', 'en', now)).toBe('Mar 19')
+    // a `now` in the past can never coincide with the real clock, so this proves `now`, not the system date, decides
+    expect(monthShortLabel('2025-10', 'en', new Date(2025, 5, 1))).toBe('Oct')
   })
 })

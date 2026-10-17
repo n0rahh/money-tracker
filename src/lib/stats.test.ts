@@ -106,6 +106,13 @@ describe('monthlyTotals', () => {
       { month: '2026-09', expense: 100, income: 50, net: -50 },
     ])
   })
+  it('sums several transactions of the same kind within a month', () => {
+    const rows = monthlyTotals(
+      [tx({ amount: 100, date: '2026-09-03' }), tx({ amount: 25, date: '2026-09-04' }), tx({ amount: 50, date: '2026-09-20', kind: 'income' }), tx({ amount: 5, date: '2026-09-21', kind: 'income' })],
+      ['2026-09'],
+    )
+    expect(rows).toEqual([{ month: '2026-09', expense: 125, income: 55, net: -70 }])
+  })
 })
 
 describe('paceComparison', () => {
@@ -123,6 +130,32 @@ describe('paceComparison', () => {
     expect(paceComparison([tx({ amount: 5, date: '2026-10-01' })], [], '2026-10-01').deltaPct).toBeNull()
     expect(paceComparison([], [], '2026-10-01')).toEqual({ spentToDate: 0, previousToDate: 0, dayOfMonth: 1, deltaPct: null })
   })
+  it('ignores previous rows outside the previous month and previous income rows', () => {
+    const previous = [tx({ amount: 800, date: '2026-09-05' }), tx({ amount: 999, date: '2026-08-05' }), tx({ amount: 777, date: '2026-09-06', kind: 'income' })]
+    expect(paceComparison([tx({ amount: 1000, date: '2026-10-02' })], previous, '2026-10-14').previousToDate).toBe(800)
+  })
+  it('rounds the percentage to the nearest integer', () => {
+    const pace = (cur: number, prev: number) => paceComparison([tx({ amount: cur, date: '2026-10-01' })], [tx({ amount: prev, date: '2026-09-01' })], '2026-10-01').deltaPct
+    expect([pace(5, 3), pace(1, 3)]).toEqual([67, -67])
+  })
+  it('counts 29 February of a leap year only from day 29 on', () => {
+    const previous = [tx({ amount: 100, date: '2028-02-28' }), tx({ amount: 7, date: '2028-02-29' })]
+    expect([28, 29, 31].map((d) => paceComparison([], previous, `2028-03-${d}`).previousToDate)).toEqual([100, 107, 107])
+  })
+  it('rounds an exact half up', () => {
+    // 29 / 200 = 14.5%: the old divide-then-multiply order gave 14.499999999999998 and rounded down
+    expect(paceComparison([tx({ amount: 229 })], [tx({ amount: 200, date: '2026-09-14' })], '2026-10-14').deltaPct).toBe(15)
+  })
+  it('never reports a negative zero percent', () => {
+    // -0.4% rounds to -0 unless the result is normalised
+    const { deltaPct } = paceComparison([tx({ amount: 996 })], [tx({ amount: 1000, date: '2026-09-14' })], '2026-10-14')
+    expect(deltaPct).toBe(0)
+    expect(Object.is(deltaPct, -0)).toBe(false)
+  })
+  it('ignores current rows from other months', () => {
+    const current = [tx({ amount: 400, date: '2026-10-05' }), tx({ amount: 9000, date: '2026-09-30' }), tx({ amount: 700, date: '2025-10-20' })]
+    expect(paceComparison(current, [], '2026-10-14').spentToDate).toBe(400)
+  })
 })
 
 describe('categoryDeltas', () => {
@@ -138,6 +171,10 @@ describe('categoryDeltas', () => {
   it('breaks equal absolute deltas by categoryId', () => {
     const rows = categoryDeltas([tx({ amount: 100, categoryId: 'b' }), tx({ amount: 100, categoryId: 'a' })], [], 'expense')
     expect(rows.map((r) => r.categoryId)).toEqual(['a', 'b'])
+  })
+  it('sorts a large decrease ahead of a smaller increase', () => {
+    const rows = categoryDeltas([tx({ amount: 300, categoryId: 'up' })], [tx({ amount: 500, categoryId: 'down', date: '2026-09-10' })], 'expense')
+    expect(rows.map((r) => r.categoryId)).toEqual(['down', 'up'])
   })
 })
 
@@ -168,11 +205,37 @@ describe('suggestions', () => {
     expect(suggestions(txs, '2026-10-20', 2)).toHaveLength(2)
     expect(suggestions(txs, '2026-10-20')).toHaveLength(3)
   })
+  it('breaks count ties by the most recent use whatever the input order', () => {
+    const txs = [
+      tx({ amount: 1, categoryId: 'alpha', date: '2026-10-05', at: at(5, 9) }),
+      tx({ amount: 1, categoryId: 'alpha', date: '2026-10-09', at: at(9, 9) }),
+      tx({ amount: 2, categoryId: 'zeta', date: '2026-10-10', at: at(10, 9) }),
+      tx({ amount: 2, categoryId: 'zeta', date: '2026-10-01', at: at(1, 9) }),
+    ]
+    const rows = suggestions(txs, '2026-10-20')
+    expect(rows.map((s) => s.categoryId)).toEqual(['zeta', 'alpha'])
+    expect(rows[0].lastAt).toBe(at(10, 9).toMillis())
+  })
+  it('takes four by default', () => {
+    const six = Array.from({ length: 6 }, (_, i) => tx({ amount: 10 + i, date: `2026-10-0${i + 1}` }))
+    expect(suggestions(six, '2026-10-20')).toHaveLength(4)
+  })
+  it('keys on amount, category and kind as well as note', () => {
+    const base = { note: 'n', date: '2026-10-01' }
+    const count = (a: Transaction, b: Transaction) => suggestions([a, b], '2026-10-20').length
+    expect(count(tx({ amount: 1, ...base }), tx({ amount: 2, ...base }))).toBe(2)
+    expect(count(tx({ amount: 1, categoryId: 'a', ...base }), tx({ amount: 1, categoryId: 'b', ...base }))).toBe(2)
+    expect(count(tx({ amount: 1, kind: 'expense', ...base }), tx({ amount: 1, kind: 'income', ...base }))).toBe(2)
+  })
 })
 
 describe('categoryMonthlyTotals', () => {
   it('sums one category per month, any kind', () => {
     const txs = [tx({ amount: 100, categoryId: 'c', date: '2026-09-01' }), tx({ amount: 20, categoryId: 'c', date: '2026-09-30' }), tx({ amount: 5, categoryId: 'other', date: '2026-09-02' }), tx({ amount: 7, categoryId: 'c', date: '2026-10-01' })]
     expect(categoryMonthlyTotals(txs, 'c', ['2026-08', '2026-09', '2026-10'])).toEqual([0, 120, 7])
+  })
+  it('counts income rows of the category and ignores months outside the list', () => {
+    const txs = [tx({ amount: 100, categoryId: 'c', date: '2026-09-01', kind: 'income' }), tx({ amount: 9, categoryId: 'c', date: '2026-01-01' })]
+    expect(categoryMonthlyTotals(txs, 'c', ['2026-09'])).toEqual([100])
   })
 })

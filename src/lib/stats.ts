@@ -94,15 +94,23 @@ export function monthlyTotals(txs: Transaction[], months: IsoMonth[]): MonthTota
 
 export type Pace = { spentToDate: number; previousToDate: number; dayOfMonth: number; deltaPct: number | null }
 
+/** Integer percent change. One division keeps exact ties exact (14.5 rounds to 15); `|| 0` turns -0 into 0. */
 const pct = (current: number, previous: number): number | null =>
-  previous === 0 ? null : Math.round(((current - previous) / previous) * 100)
+  previous === 0 ? null : Math.round(((current - previous) * 100) / previous) || 0
 
+/**
+ * Spend so far this month against the same days of the previous month. Both arrays are filtered to
+ * their own month (`today`'s and the one before it), so callers may pass wider lists.
+ */
 export function paceComparison(current: Transaction[], previous: Transaction[], today: IsoDate): Pace {
   const dayOfMonth = Number(today.slice(8, 10))
-  const previousMonth = addMonths(monthOf(today), -1)
+  const month = monthOf(today)
+  const previousMonth = addMonths(month, -1)
   const cutoff = Math.min(dayOfMonth, daysInMonth(previousMonth))
   let spentToDate = 0
-  for (const t of current) if (t.kind === 'expense' && t.date <= today) spentToDate += t.amount
+  for (const t of current) {
+    if (t.kind === 'expense' && monthOf(t.date) === month && t.date <= today) spentToDate += t.amount
+  }
   let previousToDate = 0
   for (const t of previous) {
     if (t.kind !== 'expense' || monthOf(t.date) !== previousMonth) continue

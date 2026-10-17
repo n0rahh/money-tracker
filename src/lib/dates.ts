@@ -61,11 +61,13 @@ export function lastMonths(end: IsoMonth, count: number): IsoMonth[] {
   return Array.from({ length: count }, (_, i) => addMonths(end, i - (count - 1)))
 }
 
-/** Inclusive ascending list of months; empty when `from` is after `to`. */
+/** Inclusive ascending list of months; empty when `from` is after `to` or either month cannot be parsed. */
 export function monthsBetween(from: IsoMonth, to: IsoMonth): IsoMonth[] {
-  const out: IsoMonth[] = []
-  for (let m = from; m <= to; m = addMonths(m, 1)) out.push(m)
-  return out
+  const [fy, fm] = from.split('-').map(Number)
+  const [ty, tm] = to.split('-').map(Number)
+  const count = (ty - fy) * 12 + (tm - fm) + 1
+  if (!Number.isFinite(count) || count <= 0) return []
+  return Array.from({ length: count }, (_, i) => addMonths(from, i))
 }
 
 export function yearToDateMonths(now: Date = new Date()): IsoMonth[] {
