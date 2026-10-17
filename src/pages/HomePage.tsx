@@ -13,13 +13,10 @@ import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
 import { useVisibilityTick } from '../hooks/useVisibilityTick'
-import { addMonths, currentMonth, monthLabel, monthOf, monthRange, todayIso } from '../lib/dates'
+import { addMonths, currentMonth, isIsoMonth, monthLabel, monthOf, monthRange, todayIso } from '../lib/dates'
 import { formatMoney } from '../lib/money'
 import { categoryDeltas, groupByDay, paceComparison, totalsByCategory, totalsByDay, totalsByKind } from '../lib/stats'
 import type { IsoDate, IsoMonth } from '../lib/types'
-
-/** `?month=YYYY-MM`, the deep link from Trends. Anything else is ignored, a month 13 included. */
-const MONTH_PARAM = /^\d{4}-(0[1-9]|1[0-2])$/
 
 /** The daily strip's tap: brings that day's group in the list into view (a day without entries has none). */
 function scrollToDay(date: IsoDate) {
@@ -29,16 +26,20 @@ function scrollToDay(date: IsoDate) {
 
 export function HomePage() {
   const tick = useVisibilityTick()
-  const [searchParams] = useSearchParams()
+  // `?month=YYYY-MM` (from Trends, or Back from a category) picks the first month shown; anything else is ignored.
+  const [searchParams, setSearchParams] = useSearchParams()
   const [month, setMonth] = useState<IsoMonth>(() => {
     const linked = searchParams.get('month')
-    return linked !== null && MONTH_PARAM.test(linked) ? linked : currentMonth()
+    return isIsoMonth(linked) ? linked : currentMonth()
   })
   // True while the shown month was the current month when it was picked (or linked to): Home then follows the calendar
   // (31 Oct → 1 Nov) when the app comes back to the foreground; a month picked on purpose stays put.
   const followCurrent = useRef(month === currentMonth())
   useEffect(() => {
-    if (followCurrent.current) setMonth(currentMonth()) // a no-op unless the month has turned
+    if (!followCurrent.current) return
+    setMonth(currentMonth()) // a no-op unless the month has turned
+    // The URL names only a month other than the current one: a link to this month, or an invalid one, leaves it.
+    if (searchParams.has('month')) setSearchParams({}, { replace: true })
   }, [tick])
   const { from, to } = monthRange(month)
   const { transactions, loading, pending, error } = useTransactions(from, to)
@@ -54,8 +55,11 @@ export function HomePage() {
   const navigate = useNavigate()
 
   function changeMonth(next: IsoMonth) {
-    followCurrent.current = next === currentMonth()
+    const isCurrent = next === currentMonth()
+    followCurrent.current = isCurrent
     setMonth(next)
+    // A month other than the current one stays in the URL (replaced, not stacked), so a reload or a step back returns to it.
+    setSearchParams(isCurrent ? {} : { month: next }, { replace: true })
   }
 
   // The fallback only applies to a genuinely missing settings document (first run), never while it loads.
@@ -110,7 +114,7 @@ export function HomePage() {
       ) : (
         <>
           <div className="mt-4">
-            <DailyStrip values={days} month={month} today={today} onSelectDay={scrollToDay} formatValue={money} />
+            <DailyStrip values={days} month={month} today={today} onSelectDay={scrollToDay} formatValue={money} locale={locale} />
           </div>
           <BreakdownList
             rows={breakdown}
@@ -118,7 +122,8 @@ export function HomePage() {
             currency={currency}
             locale={locale}
             deltas={deltas}
-            onSelect={(categoryId) => navigate(`/category/${categoryId}`)}
+            // The category page opens on the shown month and its Back link returns to it; the current month needs no ?month=.
+            onSelect={(categoryId) => navigate(month === currentMonth() ? `/category/${categoryId}` : `/category/${categoryId}?month=${month}`)}
           />
           <TransactionList groups={groups} byId={byId} currency={currency} locale={locale} today={today} onSelect={openEdit} />
         </>

@@ -1,6 +1,6 @@
 import { ChevronLeft } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { BarChart } from '../components/BarChart'
 import { CategoryIcon } from '../components/CategoryChip'
 import { TransactionList } from '../components/TransactionList'
@@ -8,7 +8,7 @@ import { useAddSheet } from '../context/AddSheetContext'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
-import { currentMonth, lastMonths, monthLabel, monthOf, monthRange, monthShortLabel, todayIso } from '../lib/dates'
+import { currentMonth, isIsoMonth, lastMonths, monthLabel, monthOf, monthRange, monthShortLabel, todayIso } from '../lib/dates'
 import { formatMoney } from '../lib/money'
 import { categoryMonthlyTotals, groupByDay } from '../lib/stats'
 import type { IsoMonth } from '../lib/types'
@@ -22,7 +22,11 @@ export function CategoryPage() {
   const months = useMemo(() => lastMonths(thisMonth, 12), [thisMonth])
   // Every category's rows for the twelve months, filtered here: a category filter in the query would need a second composite index.
   const { transactions, loading, error } = useTransactions(monthRange(months[0]).from, monthRange(thisMonth).to)
-  const [selectedMonth, setSelectedMonth] = useState<IsoMonth>(thisMonth)
+  // Home's month when the category was opened from there (`?month=`): selected first when it is one of the twelve, and where Back returns.
+  const [searchParams] = useSearchParams()
+  const linked = searchParams.get('month')
+  const homeMonth = isIsoMonth(linked) ? linked : null
+  const [selectedMonth, setSelectedMonth] = useState<IsoMonth>(() => (homeMonth !== null && months.includes(homeMonth) ? homeMonth : thisMonth))
   const totals = useMemo(() => categoryMonthlyTotals(transactions, id, months), [transactions, id, months])
   const monthRows = useMemo(
     () => transactions.filter((t) => t.categoryId === id && monthOf(t.date) === selectedMonth),
@@ -37,7 +41,7 @@ export function CategoryPage() {
   const money = (minor: number) => formatMoney(minor, currency, locale)
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
   const back = (
-    <Link to="/" aria-label="Back to Home" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text">
+    <Link to={homeMonth === null ? '/' : `/?month=${homeMonth}`} aria-label="Back to Home" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text">
       <ChevronLeft size={20} />
     </Link>
   )

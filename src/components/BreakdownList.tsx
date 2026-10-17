@@ -21,7 +21,10 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, onSelect }
   const max = rows[0].total
   return (
     <section className="mt-4">
-      <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted">By category</h2>
+      <div className="mb-2 flex items-baseline justify-between px-1">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">By category</h2>
+        {deltas ? <span className="text-xs text-muted">vs previous month</span> : null}
+      </div>
       <ul className="flex flex-col gap-1">
         {rows.map((r) => {
           const category = byId.get(r.categoryId)

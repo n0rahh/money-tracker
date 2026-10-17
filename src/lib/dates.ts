@@ -29,6 +29,11 @@ export function daysInMonth(month: IsoMonth): number {
   return new Date(y, m, 0).getDate()
 }
 
+/** A month as a link carries it (`?month=`): 'YYYY-MM' with a real month, 01 to 12. */
+export function isIsoMonth(value: string | null): value is IsoMonth {
+  return value !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(value)
+}
+
 export function monthRange(month: IsoMonth): { from: IsoDate; to: IsoDate } {
   return { from: `${month}-01`, to: `${month}-${pad(daysInMonth(month))}` }
 }

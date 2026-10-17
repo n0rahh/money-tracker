@@ -133,6 +133,25 @@ describe('CategoryPage', () => {
     expect(valueOf('Average per month')).toBe('€1.88') // the average does not depend on the tapped month
   })
 
+  it('starts on the month Home was showing and goes back to Home on that month', () => {
+    page('/category/c1?month=2026-09')
+    expect(chart().getByRole('button', { pressed: true })).toHaveAccessibleName('Sep: €12.00')
+    expect(valueOf('September 2026')).toBe('€12.00')
+    expect(dayGroups()).toEqual([{ day: 'Sun, Sep 20', rows: ['Coffeebeans€12.00'] }])
+    expect(screen.getByRole('link', { name: 'Back to Home' })).toHaveAttribute('href', '/?month=2026-09')
+  })
+
+  it.each([
+    { value: 'garbage', back: '/' },
+    { value: '2026-13', back: '/' }, // not a month
+    { value: '2025-10', back: '/?month=2025-10' }, // just before the twelve months: Home can still show it
+    { value: '2026-11', back: '/?month=2026-11' }, // after them
+  ])('starts on the current month for ?month=$value and goes back to $back', ({ value, back }) => {
+    page(`/category/c1?month=${value}`)
+    expect(chart().getByRole('button', { pressed: true })).toHaveAccessibleName('Oct: €7.70')
+    expect(screen.getByRole('link', { name: 'Back to Home' })).toHaveAttribute('href', back)
+  })
+
   it('opens a tapped entry in the edit sheet', async () => {
     const user = userEvent.setup()
     page()

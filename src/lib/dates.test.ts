@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDays, addMonths, currentMonth, dayLabel, daysInMonth, lastMonths, monthLabel, monthOf,
+  addDays, addMonths, currentMonth, dayLabel, daysInMonth, isIsoMonth, lastMonths, monthLabel, monthOf,
   monthRange, monthShortLabel, monthsBetween, parseIsoDate, toIsoDate, todayIso, yearToDateMonths,
 } from './dates'
 
@@ -52,6 +52,10 @@ describe('insight date helpers', () => {
   it('returns an empty list for a malformed month instead of looping', () => {
     expect(monthsBetween('2026-01', 'zz')).toEqual([])
     expect(monthsBetween('zz', '2026-01')).toEqual([])
+  })
+  it('accepts a linked month only as YYYY-MM with a real month', () => {
+    expect(['2026-01', '2026-12', '1999-07'].map(isIsoMonth)).toEqual([true, true, true])
+    expect([null, '', '2026-00', '2026-13', '2026-7', '2026-071', '2026-07-15', 'x2026-07', '26-07'].map(isIsoMonth)).toEqual(Array(9).fill(false))
   })
   it('lists year-to-date months', () => {
     expect(yearToDateMonths(new Date(2026, 9, 17))).toEqual(['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'])

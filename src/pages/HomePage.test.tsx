@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Timestamp } from 'firebase/firestore'
-import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSheetProvider } from '../context/AddSheetContext'
 import { addMonths, currentMonth, monthLabel, monthRange, todayIso } from '../lib/dates'
@@ -34,6 +34,13 @@ function CategoryStub() {
   return <h1>{`Category ${id}`}</h1>
 }
 
+/** Shows the router's URL and how it was last reached (PUSH, REPLACE or POP). */
+function UrlProbe() {
+  const { pathname, search } = useLocation()
+  const navigation = useNavigationType()
+  return <p data-testid="url" data-navigation={navigation}>{pathname + search}</p>
+}
+
 const page = (path = '/') => (
   <AddSheetProvider>
     <MemoryRouter initialEntries={[path]}>
@@ -41,9 +48,12 @@ const page = (path = '/') => (
         <Route path="/" element={<HomePage />} />
         <Route path="category/:id" element={<CategoryStub />} />
       </Routes>
+      <UrlProbe />
     </MemoryRouter>
   </AddSheetProvider>
 )
+const url = () => screen.getByTestId('url').textContent
+const lastNavigation = () => screen.getByTestId('url').dataset.navigation
 
 /** The newest subscription to the month's range. Home listens to the shown month and to the month before it. */
 function subscriptionTo(month: IsoMonth) {
@@ -216,6 +226,7 @@ describe('HomePage', () => {
 
     it('follows the calendar after a link to the current month', () => {
       render(page('/?month=2026-10'))
+      expect(url()).toBe('/') // the URL only ever names a month other than the current one
       resumeAt(new Date(2026, 10, 1, 9, 0))
       expect(heading()).toHaveTextContent('November 2026')
     })
@@ -302,6 +313,34 @@ describe('HomePage', () => {
       expect(breakdownRows()).toEqual(['Groceries€50.0087%new', `Coffee€7.7013%${MINUS}49 %`])
     })
 
+    it('still compares when last month had no entries', () => {
+      render(page())
+      deliver(OCTOBER)
+      deliver([], { month: '2026-09' })
+      expect(paceLine()?.textContent).toBe('€57.70 by day 17 · no data for last month')
+      expect(breakdownRows()).toEqual(['Groceries€50.0087%new', 'Coffee€7.7013%new'])
+    })
+
+    it('lays out the summary, the pace line, the daily strip, the breakdown and the days in that order', () => {
+      render(page())
+      showBothMonths()
+      const order = [
+        screen.getByText('Spent'),
+        screen.getByText(/ by day /),
+        screen.getByRole('img', { name: /^Daily spending/ }),
+        screen.getByRole('heading', { name: 'By category' }),
+        screen.getAllByRole('heading', { level: 3 })[0],
+      ]
+      expect(order.slice(1).map((el, i) => Boolean(order[i].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING))).toEqual([true, true, true, true])
+    })
+
+    it('names the month in the daily strip in the language of the settings', () => {
+      useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'de' }, loading: false, fromCache: false, error: null })
+      render(page())
+      showBothMonths()
+      expect(screen.getByRole('img', { name: /^Daily spending in Oktober 2026: / })).toBeInTheDocument()
+    })
+
     it('compares nothing until last month has arrived, so no category reads as "new" meanwhile', () => {
       render(page())
       deliver(OCTOBER)
@@ -338,6 +377,27 @@ describe('HomePage', () => {
       showBothMonths()
       await user.click(within(breakdown()).getByRole('button', { name: /^Groceries/ }))
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Category c3')
+      expect(url()).toBe('/category/c3') // the current month needs no ?month=
+      expect(lastNavigation()).toBe('PUSH') // a step back in history returns to Home
+    })
+
+    it('opens a category on the month Home shows', async () => {
+      const user = userEvent.setup()
+      render(page('/?month=2026-09'))
+      deliver([entry('s2', COFFEE, '2026-09-05', 500, 'cortado')], { month: '2026-09' })
+      await user.click(within(breakdown()).getByRole('button', { name: /^Coffee/ }))
+      expect(url()).toBe('/category/c1?month=2026-09')
+    })
+
+    it('keeps a month other than the current one in the URL, without adding history entries', async () => {
+      const user = userEvent.setup()
+      render(page())
+      await user.click(screen.getByRole('button', { name: 'Previous month' }))
+      expect(url()).toBe('/?month=2026-09')
+      expect(lastNavigation()).toBe('REPLACE')
+      await user.click(screen.getByRole('button', { name: 'Next month' }))
+      expect(url()).toBe('/')
+      expect(lastNavigation()).toBe('REPLACE')
     })
 
     it("draws the month's spending per day in the daily strip", () => {
@@ -357,11 +417,13 @@ describe('HomePage', () => {
       deliver([entry('u1', COFFEE, '2026-06-14', 300, 'espresso')], { month: '2026-06' })
       expect(breakdownRows()).toEqual(['Coffee€6.00100%+100 %'])
       expect(paceLine()).not.toBeInTheDocument() // pace is for the current month only
+      expect(url()).toBe('/?month=2026-07')
     })
 
-    it.each(['garbage', '2026-13', '2026-7'])('ignores ?month=%s and opens the current month', (value) => {
+    it.each(['garbage', '2026-13', '2026-7', '2026-07-15', 'x2026-07', '2026-071'])('ignores ?month=%s and opens the current month', (value) => {
       render(page(`/?month=${value}`))
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('October 2026')
+      expect(url()).toBe('/') // and drops it from the URL
     })
 
     describe('tapping the daily strip', () => {
