@@ -6,6 +6,7 @@ import { CategoryChip } from '../components/CategoryChip'
 import { CompareSection } from '../components/CompareSection'
 import { DeltaBadge } from '../components/DeltaBadge'
 import { SegmentedControl } from '../components/SegmentedControl'
+import { AMOUNT, CELL, HEAD } from '../components/tableStyles'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
@@ -31,11 +32,11 @@ function rememberedRange(): RangeKey {
   }
 }
 
-const CELL = 'px-2 py-2'
-const AMOUNT = `${CELL} whitespace-nowrap text-right`
-const HEAD = `${CELL} whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-muted`
-/** Income and Net get columns of their own from `sm` up; below it they sit under the month, so the table fits a phone. */
-const WIDE = 'hidden sm:table-cell'
+/**
+ * Income and Net get columns of their own from `lg` up; below it they sit under the month, so the table fits a phone and
+ * the narrow column beside the `md` sidebar, even with six-digit amounts.
+ */
+const WIDE = 'hidden lg:table-cell'
 /** Income and net while a filter is on: the chosen expense categories hold no income, so the figures would only echo the spending. */
 const NONE = '—'
 
@@ -191,9 +192,9 @@ export function TrendsPage() {
                 <tr key={r.month} className="border-t border-border">
                   <th scope="row" className={`${CELL} text-left font-medium`}>
                     <span className="whitespace-nowrap">{monthShortLabel(r.month, locale)}</span>
-                    {/* The phone's Income and Net, which have no columns below `sm`. Each pair stays on one line while it fits
+                    {/* Income and Net below `lg`, where they have no columns. Each pair stays on one line while it fits
                         and wraps inside itself only when squeezed, so the column never pushes the table past the screen. */}
-                    <div className="text-xs font-normal text-muted sm:hidden">
+                    <div className="text-xs font-normal text-muted lg:hidden">
                       <span className="inline-block">income {incomeOf(r)}</span> · <span className="inline-block">net {netOf(r)}</span>
                     </div>
                   </th>

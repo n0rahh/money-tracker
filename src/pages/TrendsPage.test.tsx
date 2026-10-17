@@ -130,7 +130,7 @@ const textOf = (cells: NodeListOf<Element>) => Array.from(cells, (c) => c.textCo
 const headOf = (table: HTMLElement) => textOf(table.querySelectorAll('thead th'))
 /** A cell's text; one holding several elements (a month and, under it, its phone line) reads them joined by " | ". */
 const cellText = (cell: Element) => (cell.children.length > 1 ? Array.from(cell.children, (c) => c.textContent).join(' | ') : cell.textContent)
-/** Each body row's cells as text, in screen order. Every column is in the DOM; below `sm` CSS hides Income and Net. */
+/** Each body row's cells as text, in screen order. Every column is in the DOM; below `lg` CSS hides Income and Net. */
 const bodyOf = (table: HTMLElement) => Array.from(table.querySelectorAll('tbody tr'), (tr) => Array.from(tr.querySelectorAll('th, td'), cellText))
 const monthTable = () => screen.getByRole('table', { name: 'Monthly totals' })
 const spentColumn = () => bodyOf(monthTable()).map((cells) => cells[1])
@@ -193,6 +193,17 @@ describe('TrendsPage', () => {
       ['Jun | income €0.00 · net €0.00', '€0.00', '€0.00', '€0.00', ''], // nothing after nothing: no badge
       ['May | income €0.00 · net €0.00', '€0.00', '€0.00', '€0.00', `${MINUS}100 %`], // against April, the month before the range
     ])
+  })
+
+  it('gives Income and Net columns of their own only from lg; below it they ride under the month', () => {
+    renderPage()
+    const table = monthTable()
+    const wide = (cell: Element) => cell.classList.contains('hidden') && cell.classList.contains('lg:table-cell')
+    expect(Array.from(table.querySelectorAll('thead th'), wide)).toEqual([false, false, true, true, false])
+    for (const row of table.querySelectorAll('tbody tr')) {
+      expect(Array.from(row.querySelectorAll('th, td'), wide)).toEqual([false, false, true, true, false])
+      expect(row.querySelector('th > div')).toHaveClass('lg:hidden') // the month's own "income · net" line
+    }
   })
 
   it('re-subscribes for a shorter range, the month before it included, and compares its first month with that month', async () => {
@@ -530,6 +541,14 @@ describe('TrendsPage', () => {
         ['Uncategorized', '€0.00', '€12.00', '+€12.00new'],
         ['Coffee', '€15.00', '€7.70', `-€7.30${MINUS}49 %`],
       ])
+    })
+
+    it('shows the category icons and the absolute change only from lg; the badge on every width', () => {
+      renderPage()
+      const gym = compareTable().querySelector('tbody tr') as HTMLElement
+      expect(within(gym).getByRole('link', { name: 'Gym' }).firstElementChild).toHaveClass('hidden', 'lg:inline-flex') // the icon
+      expect(within(gym).getByText('-€40.00')).toHaveClass('hidden', 'lg:inline')
+      expect(within(gym).getByText(`${MINUS}100 %`)).not.toHaveClass('hidden')
     })
 
     it('offers the last 24 months, newest first, for both months', () => {

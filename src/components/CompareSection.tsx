@@ -9,6 +9,7 @@ import type { Category, IsoMonth } from '../lib/types'
 import { CacheHint } from './CacheHint'
 import { CategoryIcon } from './CategoryChip'
 import { DeltaBadge } from './DeltaBadge'
+import { AMOUNT, CELL, HEAD } from './tableStyles'
 
 type Props = {
   /** Every category by id, archived ones included (`useCategories().byId`). */
@@ -17,15 +18,12 @@ type Props = {
   locale: string | null
 }
 
-const CELL = 'px-2 py-2'
-const AMOUNT = `${CELL} whitespace-nowrap text-right`
-const HEAD = `${CELL} text-xs font-semibold uppercase tracking-wider text-muted`
 /** The category column takes what the amounts leave and truncates long names, so the table fits a phone. */
 const NAME = 'w-full max-w-0 text-left'
 /** A and B in a smaller size below `sm`, which leaves the names their room on a phone. */
 const MONTH_AMOUNT = `${AMOUNT} text-xs sm:text-sm`
-/** The icon only from `sm` up: below it, its width goes to the name. */
-const ICON = 'hidden shrink-0 sm:inline-flex'
+/** The icon only from `lg` up: below it (phones, and the narrow column beside the `md` sidebar), its width goes to the name. */
+const ICON = 'hidden shrink-0 lg:inline-flex'
 
 /** A and B are remembered for the session, so Back from a category page returns to the same comparison. */
 const A_KEY = 'compare.a'
@@ -113,10 +111,10 @@ export function CompareSection({ byId, currency, locale }: Props) {
               <th scope="col" className={`${HEAD} ${NAME} truncate`}>
                 Category
               </th>
-              <th scope="col" className={`${HEAD} whitespace-nowrap text-right`}>
+              <th scope="col" className={`${HEAD} text-right`}>
                 {monthShortLabel(a, locale)}
               </th>
-              <th scope="col" className={`${HEAD} whitespace-nowrap text-right`}>
+              <th scope="col" className={`${HEAD} text-right`}>
                 {monthShortLabel(b, locale)}
               </th>
               <th scope="col" aria-label="Change" className={`${HEAD} text-right`}>
@@ -154,8 +152,8 @@ export function CompareSection({ byId, currency, locale }: Props) {
                   <td className={MONTH_AMOUNT}>{money(d.current)}</td>
                   <td className={AMOUNT}>
                     <span className="flex flex-col items-end gap-1">
-                      {/* Below `sm` the badge alone carries the change, leaving A and B their room. */}
-                      <span className="hidden sm:inline">{formatMoney(d.delta, currency, locale, { signed: true })}</span>
+                      {/* Below `lg` the badge alone carries the change, leaving A and B their room. */}
+                      <span className="hidden lg:inline">{formatMoney(d.delta, currency, locale, { signed: true })}</span>
                       <DeltaBadge deltaPct={d.deltaPct} previous={d.previous} />
                     </span>
                   </td>
