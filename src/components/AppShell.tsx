@@ -1,4 +1,4 @@
-import { House, Plus, Settings, Tags } from 'lucide-react'
+import { ChartColumn, House, Plus, Settings, Tags } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAddSheet } from '../context/AddSheetContext'
 import { AddTransactionSheet } from './AddTransactionSheet'
@@ -6,6 +6,7 @@ import { FirstRunGate } from './FirstRunGate'
 
 const links = [
   { to: '/', label: 'Home', icon: House, end: true },
+  { to: '/trends', label: 'Trends', icon: ChartColumn, end: false },
   { to: '/categories', label: 'Categories', icon: Tags, end: false },
   { to: '/settings', label: 'Settings', icon: Settings, end: false },
 ]

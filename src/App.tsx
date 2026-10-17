@@ -9,6 +9,7 @@ import { CategoryPage } from './pages/CategoryPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { TrendsPage } from './pages/TrendsPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
               <Route element={<RequireAuth />}>
                 <Route element={<AppShell />}>
                   <Route index element={<HomePage />} />
+                  <Route path="trends" element={<TrendsPage />} />
                   <Route path="categories" element={<CategoriesPage />} />
                   <Route path="category/:id" element={<CategoryPage />} />
                   <Route path="settings" element={<SettingsPage />} />

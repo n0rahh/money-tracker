@@ -1,0 +1,131 @@
+import { useId, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useTransactions } from '../hooks/useTransactions'
+import { addMonths, currentMonth, lastMonths, monthLabel, monthOf, monthRange, monthShortLabel } from '../lib/dates'
+import { formatMoney } from '../lib/money'
+import { categoryDeltas } from '../lib/stats'
+import type { Category, IsoMonth } from '../lib/types'
+import { CategoryIcon } from './CategoryChip'
+import { DeltaBadge } from './DeltaBadge'
+
+type Props = {
+  /** Every category by id, archived ones included (`useCategories().byId`). */
+  byId: Map<string, Category>
+  currency: string
+  locale: string | null
+}
+
+const CELL = 'px-2 py-2'
+const AMOUNT = `${CELL} whitespace-nowrap text-right`
+const HEAD = `${CELL} text-xs font-semibold uppercase tracking-wider text-muted`
+/** The category column stays put while a wide table scrolls sideways. */
+const STICKY = 'sticky left-0 bg-surface'
+
+/** Spending per category in two chosen months, biggest change first. B is compared against A (B is "current"). */
+export function CompareSection({ byId, currency, locale }: Props) {
+  const headingId = useId()
+  const thisMonth = currentMonth()
+  const options = useMemo(() => lastMonths(thisMonth, 24).reverse(), [thisMonth])
+  const [a, setA] = useState<IsoMonth>(() => addMonths(thisMonth, -1))
+  const [b, setB] = useState<IsoMonth>(thisMonth)
+  // One subscription from the earlier month to the later one, whichever of A and B that is.
+  const [first, last] = a <= b ? [a, b] : [b, a]
+  const { transactions, loading, error } = useTransactions(monthRange(first).from, monthRange(last).to)
+  const deltas = useMemo(
+    () =>
+      categoryDeltas(
+        transactions.filter((t) => monthOf(t.date) === b),
+        transactions.filter((t) => monthOf(t.date) === a),
+        'expense',
+      ),
+    [transactions, a, b],
+  )
+  const money = (minor: number) => formatMoney(minor, currency, locale)
+
+  const picker = (label: string, value: IsoMonth, onChange: (month: IsoMonth) => void) => (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="px-1 text-xs text-muted">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="min-h-11 w-full rounded-chip border border-border bg-surface-2 px-3 text-text">
+        {options.map((m) => (
+          <option key={m} value={m}>
+            {monthLabel(m, locale)}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+
+  let body
+  if (loading) body = <p className="mt-4 text-center text-sm text-muted">Loading…</p>
+  // A failed query is not two empty months: its error stands alone.
+  else if (error) body = <p className="mt-4 text-center text-sm text-danger">{error.message}</p>
+  else if (deltas.length === 0) body = <p className="mt-4 text-center text-sm text-muted">Nothing to compare yet.</p>
+  else {
+    body = (
+      <div className="mt-3 overflow-x-auto rounded-card bg-surface">
+        <table aria-label="Change by category" className="tnum w-full text-sm">
+          <thead>
+            <tr>
+              <th scope="col" className={`${HEAD} ${STICKY} text-left`}>
+                Category
+              </th>
+              <th scope="col" className={`${HEAD} whitespace-nowrap text-right`}>
+                {monthShortLabel(a, locale)}
+              </th>
+              <th scope="col" className={`${HEAD} whitespace-nowrap text-right`}>
+                {monthShortLabel(b, locale)}
+              </th>
+              <th scope="col" aria-label="Change" className={`${HEAD} text-right`}>
+                Δ
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {deltas.map((d) => {
+              const category = byId.get(d.categoryId)
+              return (
+                <tr key={d.categoryId} className="border-t border-border">
+                  <th scope="row" className={`${CELL} ${STICKY} text-left font-normal`}>
+                    {/* A category removed by hand has no page to open, so its row is not a link. */}
+                    {category ? (
+                      <Link to={`/category/${d.categoryId}`} className="flex min-h-11 items-center gap-2">
+                        <CategoryIcon category={category} size={28} />
+                        <span>{category.name}</span>
+                      </Link>
+                    ) : (
+                      <span className="flex min-h-11 items-center gap-2">
+                        <CategoryIcon category={undefined} size={28} />
+                        <span>Uncategorized</span>
+                      </span>
+                    )}
+                  </th>
+                  <td className={AMOUNT}>{money(d.previous)}</td>
+                  <td className={AMOUNT}>{money(d.current)}</td>
+                  <td className={AMOUNT}>
+                    <span className="flex flex-col items-end gap-1">
+                      <span>{formatMoney(d.delta, currency, locale, { signed: true })}</span>
+                      <DeltaBadge deltaPct={d.deltaPct} previous={d.previous} />
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  return (
+    <section aria-labelledby={headingId} className="mt-6">
+      <h2 id={headingId} className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted">
+        Compare two months
+      </h2>
+      <div className="grid grid-cols-2 gap-3">
+        {picker('Month A', a, setA)}
+        {picker('Month B', b, setB)}
+      </div>
+      {body}
+    </section>
+  )
+}
