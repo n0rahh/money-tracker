@@ -90,7 +90,8 @@ function HomeStub() {
 }
 function CategoryStub() {
   const { id } = useParams()
-  return <h1>{`Category ${id}`}</h1>
+  const [params] = useSearchParams()
+  return <h1>{`Category ${id} month ${params.get('month')}`}</h1>
 }
 const renderPage = () =>
   render(
@@ -112,8 +113,10 @@ const chip = (name: string) => chips().getByRole('button', { name })
 const chipNames = () => chips().getAllByRole('button').map((b) => b.textContent)
 const textOf = (cells: NodeListOf<Element>) => Array.from(cells, (c) => c.textContent)
 const headOf = (table: HTMLElement) => textOf(table.querySelectorAll('thead th'))
-/** Each body row's cells as text, in screen order. */
-const bodyOf = (table: HTMLElement) => Array.from(table.querySelectorAll('tbody tr'), (tr) => textOf(tr.querySelectorAll('th, td')))
+/** A cell's text; one holding several elements (a month and, under it, its phone line) reads them joined by " | ". */
+const cellText = (cell: Element) => (cell.children.length > 1 ? Array.from(cell.children, (c) => c.textContent).join(' | ') : cell.textContent)
+/** Each body row's cells as text, in screen order. Every column is in the DOM; below `sm` CSS hides Income and Net. */
+const bodyOf = (table: HTMLElement) => Array.from(table.querySelectorAll('tbody tr'), (tr) => Array.from(tr.querySelectorAll('th, td'), cellText))
 const monthTable = () => screen.getByRole('table', { name: 'Monthly totals' })
 const spentColumn = () => bodyOf(monthTable()).map((cells) => cells[1])
 const compare = () => within(screen.getByRole('region', { name: 'Compare two months' }))
@@ -157,12 +160,12 @@ describe('TrendsPage', () => {
     renderPage()
     expect(headOf(monthTable())).toEqual(['Month', 'Spent', 'Income', 'Net', 'Δ'])
     expect(bodyOf(monthTable())).toEqual([
-      ['Oct', '€69.70', '€3,000.00', '+€2,930.30', `${MINUS}41 %`], // 6970 against 11900
-      ['Sep', '€119.00', '€3,000.00', '+€2,881.00', '+297 %'], // 11900 against 3000
-      ['Aug', '€30.00', '€0.00', '-€30.00', '+275 %'],
-      ['Jul', '€8.00', '€0.00', '-€8.00', 'new'], // June had nothing
-      ['Jun', '€0.00', '€0.00', '€0.00', ''], // nothing after nothing: no badge
-      ['May', '€0.00', '€0.00', '€0.00', `${MINUS}100 %`], // against April, the month before the range
+      ['Oct | income €3,000.00 · net +€2,930.30', '€69.70', '€3,000.00', '+€2,930.30', `${MINUS}41 %`], // 6970 against 11900
+      ['Sep | income €3,000.00 · net +€2,881.00', '€119.00', '€3,000.00', '+€2,881.00', '+297 %'], // 11900 against 3000
+      ['Aug | income €0.00 · net -€30.00', '€30.00', '€0.00', '-€30.00', '+275 %'],
+      ['Jul | income €0.00 · net -€8.00', '€8.00', '€0.00', '-€8.00', 'new'], // June had nothing
+      ['Jun | income €0.00 · net €0.00', '€0.00', '€0.00', '€0.00', ''], // nothing after nothing: no badge
+      ['May | income €0.00 · net €0.00', '€0.00', '€0.00', '€0.00', `${MINUS}100 %`], // against April, the month before the range
     ])
   })
 
@@ -174,9 +177,9 @@ describe('TrendsPage', () => {
     expect(listening()).toEqual([THREE_MONTHS, SEP_OCT])
     expect(barLabels()).toEqual(['Aug: €30.00, income €0.00', 'Sep: €119.00, income €3,000.00', 'Oct: €69.70, income €3,000.00'])
     expect(bodyOf(monthTable())).toEqual([
-      ['Oct', '€69.70', '€3,000.00', '+€2,930.30', `${MINUS}41 %`],
-      ['Sep', '€119.00', '€3,000.00', '+€2,881.00', '+297 %'],
-      ['Aug', '€30.00', '€0.00', '-€30.00', '+275 %'], // against July's €8.00
+      ['Oct | income €3,000.00 · net +€2,930.30', '€69.70', '€3,000.00', '+€2,930.30', `${MINUS}41 %`],
+      ['Sep | income €3,000.00 · net +€2,881.00', '€119.00', '€3,000.00', '+€2,881.00', '+297 %'],
+      ['Aug | income €0.00 · net -€30.00', '€30.00', '€0.00', '-€30.00', '+275 %'], // against July's €8.00
     ])
   })
 
@@ -257,14 +260,14 @@ describe('TrendsPage', () => {
     renderPage()
     await user.click(chip('Coffee'))
     expect(chip('Coffee')).toHaveAttribute('aria-pressed', 'true')
-    expect(bar('Oct')).toHaveAccessibleName('Oct: €7.70, income €0.00')
+    expect(bar('Oct')).toHaveAccessibleName('Oct: €7.70')
     expect(bodyOf(monthTable())).toEqual([
-      ['Oct', '€7.70', '€0.00', '-€7.70', `${MINUS}49 %`],
-      ['Sep', '€15.00', '€0.00', '-€15.00', 'new'],
-      ['Aug', '€0.00', '€0.00', '€0.00', `${MINUS}100 %`],
-      ['Jul', '€8.00', '€0.00', '-€8.00', 'new'],
-      ['Jun', '€0.00', '€0.00', '€0.00', ''],
-      ['May', '€0.00', '€0.00', '€0.00', ''], // April had no coffee either
+      ['Oct | income — · net —', '€7.70', '—', '—', `${MINUS}49 %`],
+      ['Sep | income — · net —', '€15.00', '—', '—', 'new'],
+      ['Aug | income — · net —', '€0.00', '—', '—', `${MINUS}100 %`],
+      ['Jul | income — · net —', '€8.00', '—', '—', 'new'],
+      ['Jun | income — · net —', '€0.00', '—', '—', ''],
+      ['May | income — · net —', '€0.00', '—', '—', ''], // April had no coffee either
     ])
 
     await user.click(chip('Groceries'))
@@ -274,6 +277,24 @@ describe('TrendsPage', () => {
     await user.click(chip('Groceries'))
     expect(chips().queryAllByRole('button', { pressed: true })).toEqual([])
     expect(spentColumn()).toEqual(['€69.70', '€119.00', '€30.00', '€8.00', '€0.00', '€0.00'])
+    expect(bar('Oct')).toHaveAccessibleName('Oct: €69.70, income €3,000.00')
+  })
+
+  it('leaves income out of the chart and reads "—" for income and net while a filter is on', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    expect(chart().getAllByTestId('dot')).toHaveLength(6)
+    await user.click(chip('Groceries'))
+    // The chosen categories hold no income, so the dots and the income and net figures would only repeat their spending.
+    expect(chart().queryAllByTestId('dot')).toEqual([])
+    expect(barLabels()).toEqual(['May: €0.00', 'Jun: €0.00', 'Jul: €0.00', 'Aug: €30.00', 'Sep: €64.00', 'Oct: €50.00'])
+    expect(bodyOf(monthTable()).map((cells) => [cells[0], cells[2], cells[3]])).toEqual(
+      ['Oct', 'Sep', 'Aug', 'Jul', 'Jun', 'May'].map((month) => [`${month} | income — · net —`, '—', '—']),
+    )
+    // The change still compares spending: 5000 against 6400, 6400 against 3000, then 3000 after an empty July.
+    expect(bodyOf(monthTable()).map((cells) => cells[4])).toEqual([`${MINUS}22 %`, '+113 %', 'new', '', '', `${MINUS}100 %`])
+    await user.click(bar('Sep'))
+    expect(screen.getByText('September 2026: spent €64.00 · income — · net —')).toBeInTheDocument()
   })
 
   it('keeps a chosen archived chip, and its filter, when the new range has none of its entries', async () => {
@@ -282,7 +303,7 @@ describe('TrendsPage', () => {
     await user.click(radio('12M'))
     expect(chipNames()).toEqual(['Coffee', 'Gym', 'Groceries', 'Holiday'])
     await user.click(chip('Holiday'))
-    expect(bar('Jan')).toHaveAccessibleName('Jan: €900.00, income €0.00')
+    expect(bar('Jan')).toHaveAccessibleName('Jan: €900.00')
 
     await user.click(radio('6M'))
     expect(chip('Holiday')).toHaveAttribute('aria-pressed', 'true')
@@ -410,14 +431,20 @@ describe('TrendsPage', () => {
         ['Uncategorized', '€12.00', '€0.00', `-€12.00${MINUS}100 %`],
         ['Coffee', '€7.70', '€0.00', `-€7.70${MINUS}100 %`],
       ])
+      // The links open month B, the one being compared, even when it is the earlier of the two.
+      expect(compare().getByRole('link', { name: 'Groceries' })).toHaveAttribute('href', '/category/c3?month=2026-08')
     })
 
-    it('links each category to its page, but not one that no longer exists', async () => {
+    it('links each category to its page on month B, but not one that no longer exists', async () => {
       const user = userEvent.setup()
       renderPage()
-      expect(compare().getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual(['/category/c2', '/category/c3', '/category/c1'])
+      expect(compare().getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([
+        '/category/c2?month=2026-10',
+        '/category/c3?month=2026-10',
+        '/category/c1?month=2026-10',
+      ])
       await user.click(compare().getByRole('link', { name: 'Gym' }))
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Category c2$/)
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Category c2 month 2026-10$/)
     })
 
     it('says "Nothing to compare yet." when neither month has spending', async () => {

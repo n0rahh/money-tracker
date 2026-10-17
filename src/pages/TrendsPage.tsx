@@ -11,8 +11,8 @@ import { useTransactions } from '../hooks/useTransactions'
 import { useVisibilityTick } from '../hooks/useVisibilityTick'
 import { addMonths, currentMonth, monthLabel, monthRange, monthShortLabel } from '../lib/dates'
 import { formatMoney } from '../lib/money'
-import { monthlyTotals, rangeMonths } from '../lib/stats'
-import type { RangeKey } from '../lib/stats'
+import { monthlyTotals, percentChange, rangeMonths } from '../lib/stats'
+import type { MonthTotals, RangeKey } from '../lib/stats'
 import type { IsoMonth } from '../lib/types'
 
 const RANGES: RangeKey[] = ['3M', '6M', '12M', 'YTD']
@@ -29,14 +29,13 @@ function rememberedRange(): RangeKey {
   }
 }
 
-/** Whole-percent change, rounded as `lib/stats` rounds its deltas (one division, no -0); null when the previous amount is 0. */
-const changePct = (current: number, previous: number): number | null =>
-  previous === 0 ? null : Math.round(((current - previous) * 100) / previous) || 0
-
-const CELL = 'whitespace-nowrap px-2 py-2'
-const HEAD = `${CELL} text-xs font-semibold uppercase tracking-wider text-muted`
-/** The first column stays put while a wide table scrolls sideways, so every row keeps its label. */
-const STICKY = 'sticky left-0 bg-surface'
+const CELL = 'px-2 py-2'
+const AMOUNT = `${CELL} whitespace-nowrap text-right`
+const HEAD = `${CELL} whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-muted`
+/** Income and Net get columns of their own from `sm` up; below it they sit under the month, so the table fits a phone. */
+const WIDE = 'hidden sm:table-cell'
+/** Income and net while a filter is on: the chosen expense categories hold no income, so the figures would only echo the spending. */
+const NONE = '—'
 
 export function TrendsPage() {
   useVisibilityTick() // re-renders on each return to the foreground, so the range moves on with the calendar
@@ -63,6 +62,7 @@ export function TrendsPage() {
   const chips = categories.filter((c) => c.kind === 'expense' && (!c.archived || used.has(c.id) || selectedCategoryIds.has(c.id)))
   // A tapped month stays selected only while the range shows it.
   const shown = rows.find((r) => r.month === selectedMonth)
+  const filtering = selectedCategoryIds.size > 0
 
   function changeRange(next: RangeKey) {
     setRange(next)
@@ -86,6 +86,8 @@ export function TrendsPage() {
   const locale = settings?.locale ?? null
   const money = (minor: number) => formatMoney(minor, currency, locale)
   const signed = (minor: number) => formatMoney(minor, currency, locale, { signed: true })
+  const incomeOf = (r: MonthTotals) => (filtering ? NONE : money(r.income))
+  const netOf = (r: MonthTotals) => (filtering ? NONE : signed(r.net))
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
 
   const header = (
@@ -124,7 +126,8 @@ export function TrendsPage() {
       <>
         <section className="mt-4 rounded-card border border-border bg-surface p-4">
           <BarChart
-            bars={rows.map((r) => ({ key: r.month, label: monthShortLabel(r.month, locale), value: r.expense, secondary: r.income }))}
+            // No income dots under a filter: they would all sit on the baseline.
+            bars={rows.map((r) => ({ key: r.month, label: monthShortLabel(r.month, locale), value: r.expense, secondary: filtering ? undefined : r.income }))}
             selectedKey={shown?.month ?? null}
             onSelect={setSelectedMonth}
             formatValue={money}
@@ -133,7 +136,7 @@ export function TrendsPage() {
           {shown ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border pt-4">
               <p className="tnum min-w-0 text-sm">
-                {`${monthLabel(shown.month, locale)}: spent ${money(shown.expense)} · income ${money(shown.income)} · net ${signed(shown.net)}`}
+                {`${monthLabel(shown.month, locale)}: spent ${money(shown.expense)} · income ${incomeOf(shown)} · net ${netOf(shown)}`}
               </p>
               <Link to={`/?month=${shown.month}`} className="inline-flex min-h-11 shrink-0 items-center rounded-chip bg-surface-2 px-4 text-sm font-medium">
                 Open in Home
@@ -141,21 +144,20 @@ export function TrendsPage() {
             </div>
           ) : null}
         </section>
-        {/* Five columns of amounts outgrow a phone once they reach thousands: the table then scrolls sideways inside its card. */}
-        <div className="mt-4 overflow-x-auto rounded-card bg-surface">
+        <div className="mt-4 rounded-card bg-surface">
           <table aria-label="Monthly totals" className="tnum w-full text-sm">
             <thead>
               <tr>
-                <th scope="col" className={`${HEAD} ${STICKY} text-left`}>
+                <th scope="col" className={`${HEAD} text-left`}>
                   Month
                 </th>
                 <th scope="col" className={`${HEAD} text-right`}>
                   Spent
                 </th>
-                <th scope="col" className={`${HEAD} text-right`}>
+                <th scope="col" className={`${HEAD} ${WIDE} text-right`}>
                   Income
                 </th>
-                <th scope="col" className={`${HEAD} text-right`}>
+                <th scope="col" className={`${HEAD} ${WIDE} text-right`}>
                   Net
                 </th>
                 <th scope="col" aria-label="Change vs previous month" className={`${HEAD} text-right`}>
@@ -166,15 +168,20 @@ export function TrendsPage() {
             <tbody>
               {tableRows.map((r) => (
                 <tr key={r.month} className="border-t border-border">
-                  <th scope="row" className={`${CELL} ${STICKY} text-left font-medium`}>
-                    {monthShortLabel(r.month, locale)}
+                  <th scope="row" className={`${CELL} text-left font-medium`}>
+                    <span className="whitespace-nowrap">{monthShortLabel(r.month, locale)}</span>
+                    {/* The phone's Income and Net, which have no columns below `sm`. Each pair stays on one line while it fits
+                        and wraps inside itself only when squeezed, so the column never pushes the table past the screen. */}
+                    <div className="text-xs font-normal text-muted sm:hidden">
+                      <span className="inline-block">income {incomeOf(r)}</span> · <span className="inline-block">net {netOf(r)}</span>
+                    </div>
                   </th>
-                  <td className={`${CELL} text-right`}>{money(r.expense)}</td>
-                  <td className={`${CELL} text-right`}>{money(r.income)}</td>
-                  <td className={`${CELL} text-right ${r.net < 0 ? 'text-expense' : ''}`}>{signed(r.net)}</td>
+                  <td className={AMOUNT}>{money(r.expense)}</td>
+                  <td className={`${AMOUNT} ${WIDE}`}>{incomeOf(r)}</td>
+                  <td className={`${AMOUNT} ${WIDE} ${!filtering && r.net < 0 ? 'text-expense' : ''}`}>{netOf(r)}</td>
                   <td className={`${CELL} text-right`}>
                     {/* Nothing after nothing is no change: no badge. */}
-                    {r.expense === 0 && r.previous === 0 ? null : <DeltaBadge deltaPct={changePct(r.expense, r.previous)} previous={r.previous} />}
+                    {r.expense === 0 && r.previous === 0 ? null : <DeltaBadge deltaPct={percentChange(r.expense, r.previous)} previous={r.previous} />}
                   </td>
                 </tr>
               ))}

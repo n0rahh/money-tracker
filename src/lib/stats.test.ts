@@ -2,7 +2,7 @@ import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 import {
   categoryDeltas, categoryMonthlyTotals, groupByDay, monthlyTotals, orderCategoriesByRecency,
-  paceComparison, rangeMonths, suggestions, totalsByCategory, totalsByDay, totalsByKind,
+  paceComparison, percentChange, rangeMonths, suggestions, totalsByCategory, totalsByDay, totalsByKind,
 } from './stats'
 import type { Category, Transaction } from './types'
 
@@ -112,6 +112,13 @@ describe('monthlyTotals', () => {
       ['2026-09'],
     )
     expect(rows).toEqual([{ month: '2026-09', expense: 125, income: 55, net: -70 }])
+  })
+})
+
+describe('percentChange', () => {
+  it('rounds an exact half up and never returns a negative zero', () => {
+    expect(percentChange(229, 200)).toBe(15) // +14.5 %
+    expect(percentChange(996, 1000)).toBe(0) // -0.4 % rounds to -0, which must read 0
   })
 })
 

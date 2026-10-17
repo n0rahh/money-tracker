@@ -18,8 +18,8 @@ type Props = {
 const CELL = 'px-2 py-2'
 const AMOUNT = `${CELL} whitespace-nowrap text-right`
 const HEAD = `${CELL} text-xs font-semibold uppercase tracking-wider text-muted`
-/** The category column stays put while a wide table scrolls sideways. */
-const STICKY = 'sticky left-0 bg-surface'
+/** The category column takes what the amounts leave and truncates long names, so the table fits a phone. */
+const NAME = 'w-full max-w-0 text-left'
 
 /** Spending per category in two chosen months, biggest change first. B is compared against A (B is "current"). */
 export function CompareSection({ byId, currency, locale }: Props) {
@@ -62,11 +62,11 @@ export function CompareSection({ byId, currency, locale }: Props) {
   else if (deltas.length === 0) body = <p className="mt-4 text-center text-sm text-muted">Nothing to compare yet.</p>
   else {
     body = (
-      <div className="mt-3 overflow-x-auto rounded-card bg-surface">
+      <div className="mt-3 rounded-card bg-surface">
         <table aria-label="Change by category" className="tnum w-full text-sm">
           <thead>
             <tr>
-              <th scope="col" className={`${HEAD} ${STICKY} text-left`}>
+              <th scope="col" className={`${HEAD} ${NAME} truncate`}>
                 Category
               </th>
               <th scope="col" className={`${HEAD} whitespace-nowrap text-right`}>
@@ -85,17 +85,17 @@ export function CompareSection({ byId, currency, locale }: Props) {
               const category = byId.get(d.categoryId)
               return (
                 <tr key={d.categoryId} className="border-t border-border">
-                  <th scope="row" className={`${CELL} ${STICKY} text-left font-normal`}>
-                    {/* A category removed by hand has no page to open, so its row is not a link. */}
+                  <th scope="row" className={`${CELL} ${NAME} font-normal`}>
+                    {/* Opens on month B, the one compared; a category removed by hand has no page to open, so its row is not a link. */}
                     {category ? (
-                      <Link to={`/category/${d.categoryId}`} className="flex min-h-11 items-center gap-2">
+                      <Link to={`/category/${d.categoryId}?month=${b}`} className="flex min-h-11 min-w-0 items-center gap-2">
                         <CategoryIcon category={category} size={28} />
-                        <span>{category.name}</span>
+                        <span className="truncate">{category.name}</span>
                       </Link>
                     ) : (
-                      <span className="flex min-h-11 items-center gap-2">
+                      <span className="flex min-h-11 min-w-0 items-center gap-2">
                         <CategoryIcon category={undefined} size={28} />
-                        <span>Uncategorized</span>
+                        <span className="truncate">Uncategorized</span>
                       </span>
                     )}
                   </th>
@@ -103,7 +103,8 @@ export function CompareSection({ byId, currency, locale }: Props) {
                   <td className={AMOUNT}>{money(d.current)}</td>
                   <td className={AMOUNT}>
                     <span className="flex flex-col items-end gap-1">
-                      <span>{formatMoney(d.delta, currency, locale, { signed: true })}</span>
+                      {/* Below `sm` the badge alone carries the change, leaving A and B their room. */}
+                      <span className="hidden sm:inline">{formatMoney(d.delta, currency, locale, { signed: true })}</span>
                       <DeltaBadge deltaPct={d.deltaPct} previous={d.previous} />
                     </span>
                   </td>

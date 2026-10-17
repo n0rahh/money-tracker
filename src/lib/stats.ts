@@ -94,9 +94,10 @@ export function monthlyTotals(txs: Transaction[], months: IsoMonth[]): MonthTota
 
 export type Pace = { spentToDate: number; previousToDate: number; dayOfMonth: number; deltaPct: number | null }
 
-/** Integer percent change. One division keeps exact ties exact (14.5 rounds to 15); `|| 0` turns -0 into 0. */
-const pct = (current: number, previous: number): number | null =>
-  previous === 0 ? null : Math.round(((current - previous) * 100) / previous) || 0
+/** Integer percent change; null when there is nothing to compare with. One division keeps exact ties exact (14.5 rounds to 15); `|| 0` turns -0 into 0. */
+export function percentChange(current: number, previous: number): number | null {
+  return previous === 0 ? null : Math.round(((current - previous) * 100) / previous) || 0
+}
 
 /**
  * Spend so far this month against the same days of the previous month. Both arrays are filtered to
@@ -116,7 +117,7 @@ export function paceComparison(current: Transaction[], previous: Transaction[], 
     if (t.kind !== 'expense' || monthOf(t.date) !== previousMonth) continue
     if (Number(t.date.slice(8, 10)) <= cutoff) previousToDate += t.amount
   }
-  return { spentToDate, previousToDate, dayOfMonth, deltaPct: pct(spentToDate, previousToDate) }
+  return { spentToDate, previousToDate, dayOfMonth, deltaPct: percentChange(spentToDate, previousToDate) }
 }
 
 export type CategoryDelta = { categoryId: string; current: number; previous: number; delta: number; deltaPct: number | null }
@@ -134,7 +135,7 @@ export function categoryDeltas(current: Transaction[], previous: Transaction[], 
     .map((categoryId) => {
       const cur = a.get(categoryId) ?? 0
       const prev = b.get(categoryId) ?? 0
-      return { categoryId, current: cur, previous: prev, delta: cur - prev, deltaPct: cur === 0 && prev > 0 ? -100 : pct(cur, prev) }
+      return { categoryId, current: cur, previous: prev, delta: cur - prev, deltaPct: cur === 0 && prev > 0 ? -100 : percentChange(cur, prev) }
     })
     .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta) || x.categoryId.localeCompare(y.categoryId))
 }
