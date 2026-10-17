@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTransactions } from '../hooks/useTransactions'
-import { addMonths, currentMonth, lastMonths, monthLabel, monthOf, monthRange, monthShortLabel } from '../lib/dates'
+import { addMonths, currentMonth, lastMonths, monthLabel, monthRange, monthShortLabel } from '../lib/dates'
 import { formatMoney } from '../lib/money'
 import { readErrorText } from '../lib/readError'
 import { categoryDeltas } from '../lib/stats'
@@ -33,18 +33,15 @@ export function CompareSection({ byId, currency, locale }: Props) {
   const options = useMemo(() => lastMonths(thisMonth, 24).reverse(), [thisMonth])
   const [a, setA] = useState<IsoMonth>(() => addMonths(thisMonth, -1))
   const [b, setB] = useState<IsoMonth>(thisMonth)
-  // One subscription from the earlier month to the later one, whichever of A and B that is.
-  const [first, last] = a <= b ? [a, b] : [b, a]
-  const { transactions, loading, error } = useTransactions(monthRange(first).from, monthRange(last).to)
-  const deltas = useMemo(
-    () =>
-      categoryDeltas(
-        transactions.filter((t) => monthOf(t.date) === b),
-        transactions.filter((t) => monthOf(t.date) === a),
-        'expense',
-      ),
-    [transactions, a, b],
-  )
+  // One month-shaped subscription per month, the same queries Home makes: a pick reads only the month picked (or finds it
+  // in the cache), never the months between A and B.
+  const rangeA = monthRange(a)
+  const rangeB = monthRange(b)
+  const inA = useTransactions(rangeA.from, rangeA.to)
+  const inB = useTransactions(rangeB.from, rangeB.to)
+  const loading = inA.loading || inB.loading
+  const error = inA.error ?? inB.error
+  const deltas = useMemo(() => categoryDeltas(inB.transactions, inA.transactions, 'expense'), [inA.transactions, inB.transactions])
   const money = (minor: number) => formatMoney(minor, currency, locale)
   // The category page shows the last twelve months, so it can open on B only when B is one of them.
   const linkMonth = b >= lastMonths(thisMonth, 12)[0] ? b : null

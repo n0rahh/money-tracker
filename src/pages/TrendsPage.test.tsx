@@ -44,7 +44,10 @@ const ROWS = [
 // Subscriptions as "from..to".
 const SIX_MONTHS = '2026-04-01..2026-10-31' // May–Oct, plus April for May's change
 const THREE_MONTHS = '2026-07-01..2026-10-31' // Aug–Oct, plus July for August's change
-const SEP_OCT = '2026-09-01..2026-10-31' // the comparison's default: September (A) against October (B)
+// The comparison reads each of its months on its own: by default September (A) against October (B).
+const SEP = '2026-09-01..2026-09-30'
+const OCT = '2026-10-01..2026-10-31'
+const JUL = '2026-07-01..2026-07-31'
 
 const { subscribeTransactionsInRange, useCategories, useSettings } = vi.hoisted(() => ({
   subscribeTransactionsInRange: vi.fn(),
@@ -59,10 +62,10 @@ vi.mock('../hooks/useSettings', () => ({ useSettings }))
 type OnData = (rows: Transaction[], hasPendingWrites: boolean) => void
 /** What the range query returns: the fixture's rows dated within it. */
 const rowsIn = (from: IsoDate, to: IsoDate) => ROWS.filter((t) => t.date >= from && t.date <= to)
-/** Answers every subscription at once, except the `held` range, which loads until the test delivers or fails it. */
-function answerRanges(held?: string) {
+/** Answers every subscription at once, except the `held` ranges, which load until the test delivers or fails them. */
+function answerRanges(...held: string[]) {
   subscribeTransactionsInRange.mockImplementation((from: IsoDate, to: IsoDate, onData: OnData) => {
-    if (`${from}..${to}` !== held) onData(rowsIn(from, to), false)
+    if (!held.includes(`${from}..${to}`)) onData(rowsIn(from, to), false)
     return vi.fn() // each subscription gets its own unsubscribe spy
   })
 }
@@ -79,6 +82,8 @@ const listening = () =>
     .filter((_, i) => subscribeTransactionsInRange.mock.results[i].value.mock.calls.length === 0)
     .map(([from, to]) => `${from}..${to}`)
     .sort()
+/** Every range subscribed to so far, in the order of subscription. */
+const queried = () => subscribeTransactionsInRange.mock.calls.map(([from, to]) => `${from}..${to}`)
 
 const withCategories = (categories: Category[], loading = false) =>
   useCategories.mockReturnValue({ categories, byId: new Map(categories.map((c) => [c.id, c])), loading, error: null })
@@ -146,7 +151,7 @@ describe('TrendsPage', () => {
     renderPage()
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Trends$/)
     expect(radio('6M')).toBeChecked()
-    expect(listening()).toEqual([SIX_MONTHS, SEP_OCT])
+    expect(listening()).toEqual([SIX_MONTHS, SEP, OCT])
     expect(barLabels()).toEqual([
       'May: €0.00, income €0.00',
       'Jun: €0.00, income €0.00',
@@ -175,7 +180,7 @@ describe('TrendsPage', () => {
     renderPage()
     await user.click(radio('3M'))
     expect(radio('3M')).toBeChecked()
-    expect(listening()).toEqual([THREE_MONTHS, SEP_OCT])
+    expect(listening()).toEqual([THREE_MONTHS, SEP, OCT])
     expect(barLabels()).toEqual(['Aug: €30.00, income €0.00', 'Sep: €119.00, income €3,000.00', 'Oct: €69.70, income €3,000.00'])
     expect(bodyOf(monthTable())).toEqual([
       ['Oct | income €3,000.00 · net +€2,930.30', '€69.70', '€3,000.00', '+€2,930.30', `${MINUS}41 %`],
@@ -191,7 +196,7 @@ describe('TrendsPage', () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(radio(range))
-    expect(listening()).toEqual([`${from}..2026-10-31`, SEP_OCT].sort())
+    expect(listening()).toEqual([`${from}..2026-10-31`, SEP, OCT].sort())
     expect(barLabels().map((label) => label?.split(':')[0])).toEqual(labels)
     expect(bodyOf(monthTable())).toHaveLength(labels.length)
   })
@@ -217,7 +222,7 @@ describe('TrendsPage', () => {
     unmount()
     renderPage()
     expect(radio('3M')).toBeChecked()
-    expect(listening()).toEqual([THREE_MONTHS, SEP_OCT])
+    expect(listening()).toEqual([THREE_MONTHS, SEP, OCT])
   })
 
   it('opens on the range stored for the session and stores the next one', async () => {
@@ -234,7 +239,7 @@ describe('TrendsPage', () => {
     sessionStorage.setItem('trends.range', '2Y')
     renderPage()
     expect(radio('6M')).toBeChecked()
-    expect(listening()).toEqual([SIX_MONTHS, SEP_OCT])
+    expect(listening()).toEqual([SIX_MONTHS, SEP, OCT])
   })
 
   it('still switches ranges when the browser refuses storage', async () => {
@@ -371,13 +376,13 @@ describe('TrendsPage', () => {
     vi.setSystemTime(new Date(2026, 9, 31, 23, 0))
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     renderPage()
-    expect(listening()).toEqual([SIX_MONTHS, SEP_OCT])
+    expect(listening()).toEqual([SIX_MONTHS, SEP, OCT])
 
     vi.setSystemTime(new Date(2026, 10, 1, 9, 0)) // the phone sat locked overnight
     act(() => {
       document.dispatchEvent(new Event('visibilitychange'))
     })
-    expect(listening()).toEqual(['2026-05-01..2026-11-30', SEP_OCT])
+    expect(listening()).toEqual(['2026-05-01..2026-11-30', SEP, OCT])
     expect(barLabels().at(-1)).toBe('Nov: €0.00, income €0.00')
   })
 
@@ -437,7 +442,7 @@ describe('TrendsPage', () => {
       renderPage()
       expect(monthA()).toHaveDisplayValue('September 2026')
       expect(monthB()).toHaveDisplayValue('October 2026')
-      expect(listening()).toEqual([SIX_MONTHS, SEP_OCT])
+      expect(listening()).toEqual([SIX_MONTHS, SEP, OCT])
       expect(headOf(compareTable())).toEqual(['Category', 'Sep', 'Oct', 'Δ'])
       expect(bodyOf(compareTable())).toEqual([
         ['Gym', '€40.00', '€0.00', `-€40.00${MINUS}100 %`], // archived: still its own name, without "(archived)"
@@ -456,12 +461,12 @@ describe('TrendsPage', () => {
       expect(within(monthB()).getAllByRole('option').map((o) => o.textContent)).toEqual(months)
     })
 
-    it('compares B against A whichever comes first, over one subscription spanning both', async () => {
+    it('compares B against A whichever comes first', async () => {
       const user = userEvent.setup()
       renderPage()
       await user.selectOptions(monthA(), '2026-10')
       await user.selectOptions(monthB(), '2026-08')
-      expect(listening()).toEqual([SIX_MONTHS, '2026-08-01..2026-10-31'])
+      expect(listening()).toEqual([SIX_MONTHS, '2026-08-01..2026-08-31', OCT])
       expect(headOf(compareTable())).toEqual(['Category', 'Oct', 'Aug', 'Δ'])
       expect(bodyOf(compareTable())).toEqual([
         ['Groceries', '€50.00', '€30.00', `-€20.00${MINUS}40 %`],
@@ -470,6 +475,17 @@ describe('TrendsPage', () => {
       ])
       // The links open month B, the one being compared, even when it is the earlier of the two.
       expect(compare().getByRole('link', { name: 'Groceries' })).toHaveAttribute('href', '/category/c3?month=2026-08')
+    })
+
+    it('reads A and B with one month-shaped query each, the same Home makes, never the months between them', async () => {
+      const user = userEvent.setup()
+      renderPage()
+      await user.selectOptions(monthA(), '2026-03')
+      expect(listening()).toEqual(['2026-03-01..2026-03-31', SIX_MONTHS, OCT])
+      await user.selectOptions(monthB(), '2025-11')
+      expect(listening()).toEqual(['2025-11-01..2025-11-30', '2026-03-01..2026-03-31', SIX_MONTHS])
+      // Five queries in all: the chart's range and one per month picked. October was read once although A changed after it.
+      expect(queried().sort()).toEqual(['2025-11-01..2025-11-30', '2026-03-01..2026-03-31', SIX_MONTHS, SEP, OCT])
     })
 
     it('links each category to its page on month B, but not one that no longer exists', async () => {
@@ -502,12 +518,12 @@ describe('TrendsPage', () => {
       await user.selectOptions(monthA(), '2026-08') // answered at once, so that height is recorded once it settles
       expect(body.style.minHeight).toBe('')
 
-      answerRanges('2026-07-01..2026-10-31')
+      answerRanges(JUL)
       await user.selectOptions(monthA(), '2026-07')
       expect(compare().getByText('Loading…')).toBeInTheDocument()
       expect(body.style.minHeight).toBe('420px')
 
-      deliver('2026-07-01..2026-10-31', rowsIn('2026-07-01', '2026-10-31'))
+      deliver(JUL, rowsIn('2026-07-01', '2026-07-31'))
       expect(body.style.minHeight).toBe('')
     })
 
@@ -516,18 +532,21 @@ describe('TrendsPage', () => {
       renderPage()
       await user.selectOptions(monthA(), '2026-06')
       await user.selectOptions(monthB(), '2026-05')
-      expect(listening()).toEqual([SIX_MONTHS, '2026-05-01..2026-06-30'])
+      expect(listening()).toEqual([SIX_MONTHS, '2026-05-01..2026-05-31', '2026-06-01..2026-06-30'])
       expect(compare().getByText('Nothing to compare yet.')).toBeInTheDocument()
       expect(compare().queryByRole('table')).not.toBeInTheDocument()
     })
 
-    it('shows its own loading line and error, leaving the chart above alone', () => {
-      answerRanges(SEP_OCT)
+    it.each([
+      { month: 'A', held: SEP },
+      { month: 'B', held: OCT },
+    ])('shows its own loading line and error while month $month loads or fails, leaving the chart above alone', ({ held }) => {
+      answerRanges(held) // the other month is in at once
       renderPage()
       expect(compare().getByText('Loading…')).toBeInTheDocument()
       expect(compare().queryByText('Nothing to compare yet.')).not.toBeInTheDocument()
 
-      fail(SEP_OCT, new FirebaseError('unavailable', 'Failed to get documents from server.'))
+      fail(held, new FirebaseError('unavailable', 'Failed to get documents from server.'))
       expect(compare().getByText("You're offline and this data isn't cached yet")).toBeInTheDocument()
       expect(compare().queryByText('Nothing to compare yet.')).not.toBeInTheDocument()
       expect(compare().queryByRole('table')).not.toBeInTheDocument()
