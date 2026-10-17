@@ -12,18 +12,20 @@ type Props = {
   locale: string | null
   /** The change against last month by category id; each row then ends with its badge. */
   deltas?: Map<string, CategoryDelta>
-  /** Makes each row a button that opens its category. */
+  /** What the badges compare with, beside the heading while there are badges. */
+  legend?: string
+  /** Makes each row a button that opens its category; a category removed by hand has no page, so its row stays plain. */
   onSelect?: (categoryId: string) => void
 }
 
-export function BreakdownList({ rows, byId, currency, locale, deltas, onSelect }: Props) {
+export function BreakdownList({ rows, byId, currency, locale, deltas, legend = 'vs previous month', onSelect }: Props) {
   if (rows.length === 0) return null
   const max = rows[0].total
   return (
     <section className="mt-4">
       <div className="mb-2 flex items-baseline justify-between px-1">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">By category</h2>
-        {deltas ? <span className="text-xs text-muted">vs previous month</span> : null}
+        {deltas ? <span className="text-xs text-muted">{legend}</span> : null}
       </div>
       <ul className="flex flex-col gap-1">
         {rows.map((r) => {
@@ -50,7 +52,7 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, onSelect }
               </span>
             </>
           )
-          return onSelect ? (
+          return onSelect && category ? (
             <li key={r.categoryId}>
               <button type="button" onClick={() => onSelect(r.categoryId)} className="block w-full rounded-chip bg-surface px-3 py-2 text-left active:bg-surface-2">
                 {content}

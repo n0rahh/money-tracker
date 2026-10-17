@@ -2,7 +2,7 @@ import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 import {
   categoryDeltas, categoryMonthlyTotals, groupByDay, monthlyTotals, orderCategoriesByRecency,
-  paceComparison, percentChange, rangeMonths, suggestions, totalsByCategory, totalsByDay, totalsByKind,
+  paceComparison, percentChange, previousMonthToDate, rangeMonths, suggestions, totalsByCategory, totalsByDay, totalsByKind,
 } from './stats'
 import type { Category, Transaction } from './types'
 
@@ -162,6 +162,26 @@ describe('paceComparison', () => {
   it('ignores current rows from other months', () => {
     const current = [tx({ amount: 400, date: '2026-10-05' }), tx({ amount: 9000, date: '2026-09-30' }), tx({ amount: 700, date: '2025-10-20' })]
     expect(paceComparison(current, [], '2026-10-14').spentToDate).toBe(400)
+  })
+})
+
+describe('previousMonthToDate', () => {
+  it("keeps the previous month's rows of both kinds up to today's day of month, and nothing from other months", () => {
+    const rows = [
+      tx({ amount: 1, date: '2026-09-01' }),
+      tx({ amount: 2, date: '2026-09-17', kind: 'income' }),
+      tx({ amount: 3, date: '2026-09-18' }), // a day too late
+      tx({ amount: 4, date: '2026-08-10' }),
+      tx({ amount: 5, date: '2026-10-01' }),
+    ]
+    expect(previousMonthToDate(rows, '2026-10-17').map((t) => t.amount)).toEqual([1, 2])
+  })
+  it('takes the whole of a shorter previous month once today is past its last day', () => {
+    const february = [tx({ amount: 1, date: '2026-02-27' }), tx({ amount: 2, date: '2026-02-28' })]
+    expect(['2026-03-27', '2026-03-28', '2026-03-31'].map((d) => previousMonthToDate(february, d).length)).toEqual([1, 2, 2])
+  })
+  it('crosses the year: January looks back to December', () => {
+    expect(previousMonthToDate([tx({ amount: 1, date: '2025-12-05' }), tx({ amount: 2, date: '2025-12-06' })], '2026-01-05').map((t) => t.amount)).toEqual([1])
   })
 })
 

@@ -100,22 +100,29 @@ export function percentChange(current: number, previous: number): number | null 
 }
 
 /**
+ * The pace rule: the rows of the month before `today`'s, up to the same day of month (day ≤ min(today's day, that
+ * month's length)). Rows of any other month are dropped, so callers may pass wider lists.
+ */
+export function previousMonthToDate(previous: Transaction[], today: IsoDate): Transaction[] {
+  const previousMonth = addMonths(monthOf(today), -1)
+  const cutoff = Math.min(Number(today.slice(8, 10)), daysInMonth(previousMonth))
+  return previous.filter((t) => monthOf(t.date) === previousMonth && Number(t.date.slice(8, 10)) <= cutoff)
+}
+
+/**
  * Spend so far this month against the same days of the previous month. Both arrays are filtered to
  * their own month (`today`'s and the one before it), so callers may pass wider lists.
  */
 export function paceComparison(current: Transaction[], previous: Transaction[], today: IsoDate): Pace {
   const dayOfMonth = Number(today.slice(8, 10))
   const month = monthOf(today)
-  const previousMonth = addMonths(month, -1)
-  const cutoff = Math.min(dayOfMonth, daysInMonth(previousMonth))
   let spentToDate = 0
   for (const t of current) {
     if (t.kind === 'expense' && monthOf(t.date) === month && t.date <= today) spentToDate += t.amount
   }
   let previousToDate = 0
-  for (const t of previous) {
-    if (t.kind !== 'expense' || monthOf(t.date) !== previousMonth) continue
-    if (Number(t.date.slice(8, 10)) <= cutoff) previousToDate += t.amount
+  for (const t of previousMonthToDate(previous, today)) {
+    if (t.kind === 'expense') previousToDate += t.amount
   }
   return { spentToDate, previousToDate, dayOfMonth, deltaPct: percentChange(spentToDate, previousToDate) }
 }

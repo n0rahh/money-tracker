@@ -16,7 +16,7 @@ import { useVisibilityTick } from '../hooks/useVisibilityTick'
 import { addMonths, currentMonth, isIsoMonth, monthLabel, monthOf, monthRange, todayIso } from '../lib/dates'
 import { formatMoney } from '../lib/money'
 import { readErrorText } from '../lib/readError'
-import { categoryDeltas, groupByDay, paceComparison, totalsByCategory, totalsByDay, totalsByKind } from '../lib/stats'
+import { categoryDeltas, groupByDay, paceComparison, previousMonthToDate, totalsByCategory, totalsByDay, totalsByKind } from '../lib/stats'
 import type { IsoDate, IsoMonth } from '../lib/types'
 
 /** The daily strip's tap: brings that day's group in the list into view (a day without entries has none). */
@@ -77,14 +77,17 @@ export function HomePage() {
   const days = useMemo(() => totalsByDay(transactions, month, 'expense'), [transactions, month])
   // Nothing is compared until last month's rows are in: before that (or after its query failed) every category would read as "new".
   const lastMonth = previous.loading || previous.error ? null : previous.transactions
-  const deltas = useMemo(
-    () => (lastMonth ? new Map(categoryDeltas(transactions, lastMonth, 'expense').map((d) => [d.categoryId, d])) : undefined),
-    [transactions, lastMonth],
-  )
-  // Pace is for the current month only (spec §9), taken as the month of the same `today` it counts up to.
+  // The current month, taken as the month of the same `today` it counts up to, is still running: its pace line and its
+  // badges compare with last month up to the same day (spec §9). A past month is compared with the whole month before it.
+  const isCurrentMonth = month === monthOf(today)
+  const deltas = useMemo(() => {
+    if (!lastMonth) return undefined
+    const comparedWith = isCurrentMonth ? previousMonthToDate(lastMonth, today) : lastMonth
+    return new Map(categoryDeltas(transactions, comparedWith, 'expense').map((d) => [d.categoryId, d]))
+  }, [transactions, lastMonth, isCurrentMonth, today])
   const pace = useMemo(
-    () => (lastMonth && month === monthOf(today) ? paceComparison(transactions, lastMonth, today) : null),
-    [transactions, lastMonth, month, today],
+    () => (lastMonth && isCurrentMonth ? paceComparison(transactions, lastMonth, today) : null),
+    [transactions, lastMonth, isCurrentMonth, today],
   )
   const money = (minor: number) => formatMoney(minor, currency, locale)
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
@@ -128,6 +131,7 @@ export function HomePage() {
             currency={currency}
             locale={locale}
             deltas={deltas}
+            legend={isCurrentMonth ? 'vs last month to date' : 'vs previous month'}
             // The category page opens on the shown month and its Back link returns to it; the current month needs no ?month=.
             onSelect={(categoryId) => navigate(month === currentMonth() ? `/category/${categoryId}` : `/category/${categoryId}?month=${month}`)}
           />

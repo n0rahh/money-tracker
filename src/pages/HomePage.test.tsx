@@ -9,7 +9,6 @@ import { addMonths, currentMonth, monthLabel, monthRange, todayIso } from '../li
 import type { Category, IsoDate, IsoMonth, Transaction } from '../lib/types'
 import { HomePage } from './HomePage'
 
-const MINUS = '\u2212' // DeltaBadge's true minus sign
 const COFFEE: Category = { id: 'c1', name: 'Coffee', icon: 'Coffee', color: 'amber', kind: 'expense', order: 0, archived: false }
 /** Archived after its transactions were logged: it still labels them (spec §11). */
 const GYM: Category = { id: 'c2', name: 'Gym', icon: 'Dumbbell', color: 'sky', kind: 'expense', order: 1, archived: true }
@@ -176,6 +175,22 @@ describe('HomePage', () => {
     ])
     expect(screen.getByRole('button', { name: /^Gym.*monthly pass.*€40\.00$/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Uncategorized.*€12\.00$/ })).toBeInTheDocument()
+  })
+
+  it('opens an archived category from the breakdown, but leaves a removed one plain', async () => {
+    const user = userEvent.setup()
+    withSettingsLoaded()
+    render(page())
+    deliver([
+      { ...FLAT_WHITE, id: 't2', categoryId: GYM.id, amount: 4000, note: 'monthly pass' },
+      { ...FLAT_WHITE, id: 't3', categoryId: 'removed-in-console', amount: 1200, note: '' },
+    ])
+    const breakdown = within(screen.getByRole('heading', { name: 'By category' }).closest('section') as HTMLElement)
+    expect(breakdown.getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringMatching(/^Gym/)])
+    await user.click(breakdown.getByText('Uncategorized'))
+    expect(url()).toBe('/') // still Home: a category removed by hand has no page
+    await user.click(breakdown.getByRole('button', { name: /^Gym/ }))
+    expect(url()).toBe('/category/c2')
   })
 
   it('reaches future months, so an entry saved with a wrong date can be found', async () => {
@@ -374,11 +389,24 @@ describe('HomePage', () => {
       expect(paceLine()?.textContent).toBe('€57.70 by day 17 · last month by day 17: €45.00 +28 %')
     })
 
-    it('badges each category with its change since last month, "new" when it had nothing then', () => {
+    it('badges each category with its change since last month to the same day, "new" when it had nothing then', () => {
       render(page())
       showBothMonths()
-      // Coffee: €7.70 against €15.00 for the whole of September, −48.7 %. The gym pass that stopped has no row this month.
-      expect(breakdownRows()).toEqual(['Groceries€50.0087%new', `Coffee€7.7013%${MINUS}49 %`])
+      // Coffee: €7.70 against the €5.00 of September up to the 17th (+54 %); the beans of the 20th are still to come.
+      // The gym pass that stopped has no row this month.
+      expect(breakdownRows()).toEqual(['Groceries€50.0087%new', 'Coffee€7.7013%+54 %'])
+      expect(within(breakdown()).getByText('vs last month to date')).toBeInTheDocument()
+    })
+
+    it('badges a past month against the whole month before it', () => {
+      render(page('/?month=2026-09'))
+      deliver(SEPTEMBER, { month: '2026-09' })
+      // August's coffee came on the 25th: it counts, although today is only the 17th.
+      deliver([entry('a1', COFFEE, '2026-08-25', 1000, 'beans')], { month: '2026-08' })
+      // Coffee: €15.00 against €10.00 (+50 %); the gym pass is new.
+      expect(breakdownRows()).toEqual(['Gym€40.0073%new', 'Coffee€15.0027%+50 %'])
+      expect(within(breakdown()).getByText('vs previous month')).toBeInTheDocument()
+      expect(within(breakdown()).queryByText('vs last month to date')).not.toBeInTheDocument()
     })
 
     it('still compares when last month had no entries', () => {
@@ -417,7 +445,7 @@ describe('HomePage', () => {
 
       deliver(SEPTEMBER, { month: '2026-09' })
       expect(paceLine()).toBeInTheDocument()
-      expect(breakdownRows()).toEqual(['Groceries€50.0087%new', `Coffee€7.7013%${MINUS}49 %`])
+      expect(breakdownRows()).toEqual(['Groceries€50.0087%new', 'Coffee€7.7013%+54 %'])
     })
 
     it('shows no pace line while the month loads or when it has no entries', () => {
