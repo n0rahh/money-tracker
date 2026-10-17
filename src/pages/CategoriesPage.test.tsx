@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
 import type { Category } from '../lib/types'
@@ -23,7 +24,22 @@ vi.mock('../hooks/useCategories', () => ({ useCategories }))
 
 const withCategories = (categories: Category[]) =>
   useCategories.mockReturnValue({ categories, byId: new Map(categories.map((c) => [c.id, c])), loading: false, error: null })
-const page = () => render(<ToastProvider><CategoriesPage /></ToastProvider>)
+/** Stands in for the category page and shows the id it was opened with. */
+function CategoryStub() {
+  const { id } = useParams()
+  return <h1>{`Category ${id}`}</h1>
+}
+const tree = () => (
+  <ToastProvider>
+    <MemoryRouter initialEntries={['/categories']}>
+      <Routes>
+        <Route path="categories" element={<CategoriesPage />} />
+        <Route path="category/:id" element={<CategoryStub />} />
+      </Routes>
+    </MemoryRouter>
+  </ToastProvider>
+)
+const page = () => render(tree())
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -53,7 +69,7 @@ describe('CategoriesPage', () => {
     expect(screen.getByRole('button', { name: 'New' })).toBeDisabled() // an empty list would hand out order 0 again
 
     withCategories([GROCERIES, COFFEE, OTHER, SALARY])
-    rerender(<ToastProvider><CategoriesPage /></ToastProvider>)
+    rerender(tree())
     expect(screen.getByRole('button', { name: 'New' })).toBeEnabled()
   })
 
@@ -66,5 +82,14 @@ describe('CategoriesPage', () => {
     await user.type(screen.getByLabelText('Name'), 'Salary')
     await user.click(screen.getByRole('button', { name: 'Create' }))
     expect(createCategory).toHaveBeenCalledWith(expect.objectContaining({ name: 'Salary', kind: 'income', order: 0 }))
+  })
+
+  it("opens a category's page from its edit sheet", async () => {
+    const user = userEvent.setup()
+    page()
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    await user.click(screen.getByRole('link', { name: 'History' }))
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Category c2$/)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

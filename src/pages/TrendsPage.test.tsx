@@ -2,7 +2,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
-import { MemoryRouter, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Category, IsoDate, Kind, Transaction } from '../lib/types'
 import { TrendsPage } from './TrendsPage'
@@ -97,7 +97,15 @@ function HomeStub() {
 function CategoryStub() {
   const { id } = useParams()
   const [params] = useSearchParams()
-  return <h1>{`Category ${id} month ${params.get('month')}`}</h1>
+  const navigate = useNavigate()
+  return (
+    <>
+      <h1>{`Category ${id} month ${params.get('month')}`}</h1>
+      <button type="button" onClick={() => navigate(-1)}>
+        Back
+      </button>
+    </>
+  )
 }
 const renderPage = () =>
   render(
@@ -255,9 +263,12 @@ describe('TrendsPage', () => {
     try {
       renderPage()
       expect(radio('6M')).toBeChecked()
+      expect(monthA()).toHaveDisplayValue('September 2026')
       await user.click(radio('3M'))
       expect(radio('3M')).toBeChecked()
       expect(barLabels()).toHaveLength(3)
+      await user.selectOptions(monthA(), '2026-07') // Compare stores its picks too
+      expect(monthA()).toHaveDisplayValue('July 2026')
       expect(uncaught).not.toHaveBeenCalled()
     } finally {
       window.removeEventListener('error', uncaught)
@@ -498,6 +509,33 @@ describe('TrendsPage', () => {
       ])
       await user.click(compare().getByRole('link', { name: 'Gym' }))
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Category c2 month 2026-10$/)
+    })
+
+    it('remembers A and B for the session, so Back from a category page returns to the same comparison', async () => {
+      const user = userEvent.setup()
+      renderPage()
+      await user.selectOptions(monthA(), '2026-07')
+      await user.selectOptions(monthB(), '2026-08')
+      expect([sessionStorage.getItem('compare.a'), sessionStorage.getItem('compare.b')]).toEqual(['2026-07', '2026-08'])
+      await user.click(compare().getByRole('link', { name: 'Groceries' }))
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Category c3 month 2026-08$/)
+
+      await user.click(screen.getByRole('button', { name: 'Back' }))
+      expect(monthA()).toHaveDisplayValue('July 2026')
+      expect(monthB()).toHaveDisplayValue('August 2026')
+      expect(listening()).toEqual([SIX_MONTHS, JUL, '2026-08-01..2026-08-31'])
+    })
+
+    it.each([
+      { a: '2026-13', b: 'garbage' },
+      { a: '2024-10', b: '2026-11' }, // real months, but just before and just after the 24 on offer
+    ])('opens on last month against this month when the remembered months are $a and $b', ({ a, b }) => {
+      sessionStorage.setItem('compare.a', a)
+      sessionStorage.setItem('compare.b', b)
+      renderPage()
+      expect(monthA()).toHaveDisplayValue('September 2026')
+      expect(monthB()).toHaveDisplayValue('October 2026')
+      expect(listening()).toEqual([SIX_MONTHS, SEP, OCT])
     })
 
     it("leaves the month off the links when B is older than the category page's twelve months", async () => {

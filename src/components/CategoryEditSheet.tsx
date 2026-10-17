@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useToast } from '../context/ToastContext'
 import { CATEGORY_COLORS, COLOR_KEYS, type ColorKey } from '../lib/categoryColors'
 import { FALLBACK_ICON, type IconKey } from '../lib/categoryIcons'
@@ -83,13 +84,22 @@ export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, on
         <ColorPicker value={color} onChange={setColor} />
         <IconPicker value={icon} onChange={setIcon} color={CATEGORY_COLORS[color]} />
         {editing ? (
-          <div className="flex gap-2">
-            <Button variant="ghost" className="flex-1" aria-label="Move up" disabled={index <= 0} onClick={() => move(-1)}>Up</Button>
-            <Button variant="ghost" className="flex-1" aria-label="Move down" disabled={index < 0 || index >= siblings.length - 1} onClick={() => move(1)}>Down</Button>
-            <Button variant={editing.archived ? 'ghost' : 'danger'} className="flex-1" onClick={toggleArchived}>
-              {editing.archived ? 'Unarchive' : 'Archive'}
-            </Button>
-          </div>
+          <>
+            <div className="flex gap-2">
+              <Button variant="ghost" className="flex-1" aria-label="Move up" disabled={index <= 0} onClick={() => move(-1)}>Up</Button>
+              <Button variant="ghost" className="flex-1" aria-label="Move down" disabled={index < 0 || index >= siblings.length - 1} onClick={() => move(1)}>Down</Button>
+              <Button variant={editing.archived ? 'ghost' : 'danger'} className="flex-1" onClick={toggleArchived}>
+                {editing.archived ? 'Unarchive' : 'Archive'}
+              </Button>
+            </div>
+            {/* The category's page (12 months, its entries) from the Categories tab; its Back returns here. Styled as a ghost Button. */}
+            <Link
+              to={`/category/${editing.id}`}
+              className="inline-flex min-h-11 items-center justify-center rounded-chip bg-surface-2 px-4 text-[15px] text-text transition hover:bg-border active:scale-[0.97]"
+            >
+              History
+            </Link>
+          </>
         ) : null}
       </div>
     </Sheet>

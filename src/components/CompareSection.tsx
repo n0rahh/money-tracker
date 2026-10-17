@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTransactions } from '../hooks/useTransactions'
-import { addMonths, currentMonth, lastMonths, monthLabel, monthRange, monthShortLabel } from '../lib/dates'
+import { addMonths, currentMonth, isIsoMonth, lastMonths, monthLabel, monthRange, monthShortLabel } from '../lib/dates'
 import { formatMoney } from '../lib/money'
 import { readErrorText } from '../lib/readError'
 import { categoryDeltas } from '../lib/stats'
@@ -26,13 +26,35 @@ const MONTH_AMOUNT = `${AMOUNT} text-xs sm:text-sm`
 /** The icon only from `sm` up: below it, its width goes to the name. */
 const ICON = 'hidden shrink-0 sm:inline-flex'
 
+/** A and B are remembered for the session, so Back from a category page returns to the same comparison. */
+const A_KEY = 'compare.a'
+const B_KEY = 'compare.b'
+
+function rememberedMonth(key: string, offered: IsoMonth[], fallback: IsoMonth): IsoMonth {
+  try {
+    const stored = sessionStorage.getItem(key)
+    // Only a month the pickers still offer: a session can outlive the 24 months on offer.
+    return isIsoMonth(stored) && offered.includes(stored) ? stored : fallback
+  } catch {
+    return fallback // storage refused (a locked-down browser)
+  }
+}
+
+function rememberMonth(key: string, month: IsoMonth) {
+  try {
+    sessionStorage.setItem(key, month)
+  } catch {
+    // Storage refused: the pick is simply not remembered.
+  }
+}
+
 /** Spending per category in two chosen months, biggest change first. B is compared against A (B is "current"). */
 export function CompareSection({ byId, currency, locale }: Props) {
   const headingId = useId()
   const thisMonth = currentMonth()
   const options = useMemo(() => lastMonths(thisMonth, 24).reverse(), [thisMonth])
-  const [a, setA] = useState<IsoMonth>(() => addMonths(thisMonth, -1))
-  const [b, setB] = useState<IsoMonth>(thisMonth)
+  const [a, setA] = useState<IsoMonth>(() => rememberedMonth(A_KEY, options, addMonths(thisMonth, -1)))
+  const [b, setB] = useState<IsoMonth>(() => rememberedMonth(B_KEY, options, thisMonth))
   // One month-shaped subscription per month, the same queries Home makes: a pick reads only the month picked (or finds it
   // in the cache), never the months between A and B.
   const rangeA = monthRange(a)
@@ -52,6 +74,16 @@ export function CompareSection({ byId, currency, locale }: Props) {
   useLayoutEffect(() => {
     if (!loading && bodyRef.current) setSettledHeight(bodyRef.current.offsetHeight)
   })
+
+  function pickA(month: IsoMonth) {
+    setA(month)
+    rememberMonth(A_KEY, month)
+  }
+
+  function pickB(month: IsoMonth) {
+    setB(month)
+    rememberMonth(B_KEY, month)
+  }
 
   const picker = (label: string, value: IsoMonth, onChange: (month: IsoMonth) => void) => (
     <label className="flex min-w-0 flex-col gap-1">
@@ -141,8 +173,8 @@ export function CompareSection({ byId, currency, locale }: Props) {
         Compare two months
       </h2>
       <div className="grid grid-cols-2 gap-3">
-        {picker('Month A', a, setA)}
-        {picker('Month B', b, setB)}
+        {picker('Month A', a, pickA)}
+        {picker('Month B', b, pickB)}
       </div>
       {/* flow-root: the children's top margins count inside the measured height. */}
       <div ref={bodyRef} className="flow-root" style={loading ? { minHeight: settledHeight } : undefined}>

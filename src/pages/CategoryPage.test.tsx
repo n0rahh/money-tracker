@@ -46,15 +46,17 @@ const withSettingsLoaded = () => useSettings.mockReturnValue({ settings: { curre
 const withRows = (transactions: Transaction[], state: { loading?: boolean; error?: Error } = {}) =>
   useTransactions.mockReturnValue({ transactions, loading: state.loading ?? false, pending: false, error: state.error ?? null })
 
-const tree = (path: string) => (
-  <MemoryRouter initialEntries={[path]}>
+/** One path is a cold deep link (the first history entry); a list is the history that led to its last path. */
+const tree = (path: string | string[]) => (
+  <MemoryRouter initialEntries={typeof path === 'string' ? [path] : path}>
     <Routes>
       <Route path="category/:id" element={<CategoryPage />} />
       <Route path="/" element={<p>Home stub</p>} />
+      <Route path="trends" element={<p>Trends stub</p>} />
     </Routes>
   </MemoryRouter>
 )
-const page = (path = '/category/c1') => render(tree(path))
+const page = (path: string | string[] = '/category/c1') => render(tree(path))
 
 const chart = () => within(screen.getByRole('group', { name: 'Last 12 months' }))
 /** The amount shown under a summary label. */
@@ -134,7 +136,7 @@ describe('CategoryPage', () => {
     expect(valueOf('Average per month')).toBe('€1.88') // the average does not depend on the tapped month
   })
 
-  it('starts on the month Home was showing and goes back to Home on that month', () => {
+  it('starts on the month Home was showing; opened cold from a link, its Back link goes to Home on that month', () => {
     page('/category/c1?month=2026-09')
     expect(chart().getByRole('button', { pressed: true })).toHaveAccessibleName('Sep: €12.00')
     expect(valueOf('September 2026')).toBe('€12.00')
@@ -151,6 +153,14 @@ describe('CategoryPage', () => {
     page(`/category/c1?month=${value}`)
     expect(chart().getByRole('button', { pressed: true })).toHaveAccessibleName('Oct: €7.70')
     expect(screen.getByRole('link', { name: 'Back to Home' })).toHaveAttribute('href', back)
+  })
+
+  it('goes back through history to where it was opened from, such as Compare on Trends', async () => {
+    const user = userEvent.setup()
+    page(['/trends', '/category/c1?month=2026-09'])
+    expect(screen.queryByRole('link', { name: 'Back to Home' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByText('Trends stub')).toBeInTheDocument()
   })
 
   it('opens a tapped entry in the edit sheet', async () => {

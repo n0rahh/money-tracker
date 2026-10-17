@@ -1,6 +1,6 @@
 import { ChevronLeft } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BarChart } from '../components/BarChart'
 import { CategoryIcon } from '../components/CategoryChip'
 import { TransactionList } from '../components/TransactionList'
@@ -23,8 +23,11 @@ export function CategoryPage() {
   const months = useMemo(() => lastMonths(thisMonth, 12), [thisMonth])
   // Every category's rows for the twelve months, filtered here: a category filter in the query would need a second composite index.
   const { transactions, loading, error } = useTransactions(monthRange(months[0]).from, monthRange(thisMonth).to)
-  // Home's month when the category was opened from there (`?month=`): selected first when it is one of the twelve, and where Back returns.
+  // Home's month when the category was opened from there (`?month=`): selected first when it is one of the twelve, and where
+  // the Back link of a cold deep link returns.
   const [searchParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
   const linked = searchParams.get('month')
   const homeMonth = isIsoMonth(linked) ? linked : null
   const [selectedMonth, setSelectedMonth] = useState<IsoMonth>(() => (homeMonth !== null && months.includes(homeMonth) ? homeMonth : thisMonth))
@@ -41,11 +44,19 @@ export function CategoryPage() {
   const locale = settings?.locale ?? null
   const money = (minor: number) => formatMoney(minor, currency, locale)
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
-  const back = (
-    <Link to={homeMonth === null ? '/' : `/?month=${homeMonth}`} aria-label="Back to Home" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text">
-      <ChevronLeft size={20} />
-    </Link>
-  )
+  const backClass = 'flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-2 text-text'
+  // Back returns to where the page was opened from (Home, Compare, the categories list), so it never stacks a new entry
+  // to loop through. Opened cold from a link, there is nothing in the app to return to: Home on the linked month instead.
+  const back =
+    location.key !== 'default' ? (
+      <button type="button" aria-label="Back" onClick={() => navigate(-1)} className={backClass}>
+        <ChevronLeft size={20} />
+      </button>
+    ) : (
+      <Link to={homeMonth === null ? '/' : `/?month=${homeMonth}`} aria-label="Back to Home" className={backClass}>
+        <ChevronLeft size={20} />
+      </Link>
+    )
 
   if (categoriesLoading) {
     // Not "Category not found" yet: an id is only unknown once the categories have arrived.

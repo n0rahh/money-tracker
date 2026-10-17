@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
 import { ICON_KEYS } from '../lib/categoryIcons'
@@ -23,9 +24,11 @@ vi.mock('../lib/firestore', () => ({ createCategory, updateCategory, swapCategor
 const onClose = vi.fn()
 // nextOrder 12, as if archived categories of the kind reach order 11: past the siblings' max + 1 (8) on purpose.
 const sheet = (props: Partial<ComponentProps<typeof CategoryEditSheet>> = {}) => (
-  <ToastProvider>
-    <CategoryEditSheet open kind="expense" editing={null} siblings={SIBLINGS} nextOrder={12} onClose={onClose} {...props} />
-  </ToastProvider>
+  <MemoryRouter>
+    <ToastProvider>
+      <CategoryEditSheet open kind="expense" editing={null} siblings={SIBLINGS} nextOrder={12} onClose={onClose} {...props} />
+    </ToastProvider>
+  </MemoryRouter>
 )
 
 beforeEach(() => {
@@ -119,6 +122,14 @@ describe('CategoryEditSheet', () => {
     await user.click(screen.getByRole('button', { name: 'Unarchive' }))
     expect(updateCategory).toHaveBeenCalledWith('c3', { archived: false, order: 12 })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('links an edited category to its history page; a new one has none yet', () => {
+    const { unmount } = render(sheet())
+    expect(screen.queryByRole('link', { name: 'History' })).not.toBeInTheDocument()
+    unmount()
+    render(sheet({ editing: COFFEE }))
+    expect(screen.getByRole('link', { name: 'History' })).toHaveAttribute('href', '/category/c2')
   })
 
   it('narrows the icon grid by search and selects the clicked icon', async () => {
