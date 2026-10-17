@@ -2,7 +2,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
-import { MemoryRouter, Route, Routes, useLocation, useNavigationType, useParams } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSheetProvider } from '../context/AddSheetContext'
 import { addMonths, currentMonth, monthLabel, monthRange, todayIso } from '../lib/dates'
@@ -42,14 +42,29 @@ function UrlProbe() {
   return <p data-testid="url" data-navigation={navigation}>{pathname + search}</p>
 }
 
-const page = (path = '/') => (
+/** Stands in for the tab bar's Home tab (a push to `/`) and for the system's Back. */
+function NavProbe() {
+  const navigate = useNavigate()
+  return (
+    <>
+      <Link to="/">Home tab</Link>
+      <button type="button" onClick={() => navigate(-1)}>
+        Step back
+      </button>
+    </>
+  )
+}
+
+/** One path, or the history that led to the last one. */
+const page = (path: string | string[] = '/') => (
   <AddSheetProvider>
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={typeof path === 'string' ? [path] : path}>
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="category/:id" element={<CategoryStub />} />
       </Routes>
       <UrlProbe />
+      <NavProbe />
     </MemoryRouter>
   </AddSheetProvider>
 )
@@ -236,6 +251,58 @@ describe('HomePage', () => {
       render(page('/?month=2026-07'))
       resumeAt(new Date(2026, 10, 1, 9, 0))
       expect(heading()).toHaveTextContent('July 2026')
+    })
+
+    it('goes to the current month when the Home tab is tapped on a linked month, and follows the calendar again', async () => {
+      const user = userEvent.setup()
+      render(page('/?month=2026-07'))
+      expect(heading()).toHaveTextContent('July 2026')
+      await user.click(screen.getByRole('link', { name: 'Home tab' }))
+      expect(url()).toBe('/')
+      expect(heading()).toHaveTextContent('October 2026')
+      expect(listening()).toEqual([
+        { from: '2026-09-01', to: '2026-09-30' },
+        { from: '2026-10-01', to: '2026-10-31' },
+      ])
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('November 2026')
+    })
+
+    it('shows a linked month again on a step back to it, and stays on it', async () => {
+      const user = userEvent.setup()
+      render(page('/?month=2026-07'))
+      await user.click(screen.getByRole('link', { name: 'Home tab' }))
+      await user.click(screen.getByRole('button', { name: 'Step back' }))
+      expect(url()).toBe('/?month=2026-07')
+      expect(heading()).toHaveTextContent('July 2026')
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('July 2026')
+    })
+
+    it.each(['2026-10', 'garbage'])('treats a step back to ?month=%s like a link to it: the current month, dropped from the URL', async (value) => {
+      const user = userEvent.setup()
+      render(page([`/?month=${value}`, '/?month=2026-07']))
+      expect(heading()).toHaveTextContent('July 2026')
+      await user.click(screen.getByRole('button', { name: 'Step back' }))
+      expect(heading()).toHaveTextContent('October 2026')
+      expect(url()).toBe('/')
+      expect(lastNavigation()).toBe('REPLACE')
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('November 2026')
+    })
+
+    it('keeps its own month changes through the URL, and follows the calendar again once back on the current month', async () => {
+      const user = userEvent.setup()
+      render(page('/?month=2026-07'))
+      await user.click(screen.getByRole('button', { name: 'Next month' }))
+      await user.click(screen.getByRole('button', { name: 'Next month' }))
+      expect(heading()).toHaveTextContent('September 2026')
+      expect(url()).toBe('/?month=2026-09')
+      await user.click(screen.getByRole('button', { name: 'Next month' }))
+      expect(heading()).toHaveTextContent('October 2026')
+      expect(url()).toBe('/')
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('November 2026')
     })
 
     it('moves "Today" and "Yesterday" on after midnight', () => {

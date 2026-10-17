@@ -27,20 +27,25 @@ function scrollToDay(date: IsoDate) {
 
 export function HomePage() {
   const tick = useVisibilityTick()
-  // `?month=YYYY-MM` (from Trends, or Back from a category) picks the first month shown; anything else is ignored.
+  // `?month=YYYY-MM` (from Trends, or Back from a category) picks the month shown; anything else means the current month.
   const [searchParams, setSearchParams] = useSearchParams()
-  const [month, setMonth] = useState<IsoMonth>(() => {
-    const linked = searchParams.get('month')
-    return isIsoMonth(linked) ? linked : currentMonth()
-  })
+  const linked = searchParams.get('month')
+  const [month, setMonth] = useState<IsoMonth>(() => (isIsoMonth(linked) ? linked : currentMonth()))
   // True while the shown month was the current month when it was picked (or linked to): Home then follows the calendar
   // (31 Oct → 1 Nov) when the app comes back to the foreground; a month picked on purpose stays put.
   const followCurrent = useRef(month === currentMonth())
+  // The month follows the URL while Home stays mounted, not only on arrival: the Home tab resets it to `/` on a linked
+  // month, and a step back can return to an entry that named another month. Home's own writes come back here and change nothing.
   useEffect(() => {
-    if (!followCurrent.current) return
-    setMonth(currentMonth()) // a no-op unless the month has turned
+    const next = isIsoMonth(linked) ? linked : currentMonth()
+    const kept = next === currentMonth() ? null : next
+    followCurrent.current = kept === null
+    setMonth(next)
     // The URL names only a month other than the current one: a link to this month, or an invalid one, leaves it.
-    if (searchParams.has('month')) setSearchParams({}, { replace: true })
+    if (linked !== kept) setSearchParams({}, { replace: true })
+  }, [linked])
+  useEffect(() => {
+    if (followCurrent.current) setMonth(currentMonth()) // a no-op unless the month has turned
   }, [tick])
   const { from, to } = monthRange(month)
   const { transactions, loading, pending, error } = useTransactions(from, to)
