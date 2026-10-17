@@ -1,5 +1,6 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -139,8 +140,8 @@ describe('HomePage', () => {
   it('shows a failed month query as its error alone under the summary, not as an empty month', () => {
     withSettingsLoaded()
     render(page())
-    fail(new Error('Missing or insufficient permissions.'))
-    const message = screen.getByText('Missing or insufficient permissions.')
+    fail(new FirebaseError('permission-denied', 'Missing or insufficient permissions.'))
+    const message = screen.getByText("You don't have access to this data (signed in with the wrong account?)")
     expect(screen.getByText('Spent').compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByText(/^Nothing in/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add your first entry' })).not.toBeInTheDocument()

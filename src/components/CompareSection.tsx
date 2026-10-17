@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTransactions } from '../hooks/useTransactions'
 import { addMonths, currentMonth, lastMonths, monthLabel, monthOf, monthRange, monthShortLabel } from '../lib/dates'
 import { formatMoney } from '../lib/money'
+import { readErrorText } from '../lib/readError'
 import { categoryDeltas } from '../lib/stats'
 import type { Category, IsoMonth } from '../lib/types'
 import { CategoryIcon } from './CategoryChip'
@@ -71,7 +72,7 @@ export function CompareSection({ byId, currency, locale }: Props) {
   let body
   if (loading) body = <p className="mt-4 text-center text-sm text-muted">Loading…</p>
   // A failed query is not two empty months: its error stands alone.
-  else if (error) body = <p className="mt-4 text-center text-sm text-danger">{error.message}</p>
+  else if (error) body = <p className="mt-4 text-center text-sm text-danger">{readErrorText(error)}</p>
   else if (deltas.length === 0) body = <p className="mt-4 text-center text-sm text-muted">Nothing to compare yet.</p>
   else {
     body = (

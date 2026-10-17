@@ -1,3 +1,4 @@
+import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -232,6 +233,16 @@ describe('AddTransactionSheet', () => {
     await user.click(screen.getByRole('button', { name: /add €5\.00 · coffee/i }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(await screen.findByText(/could not save: denied/i)).toBeInTheDocument()
+  })
+
+  it('explains a failed delete the user can act on, such as a wrong account', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    deleteTransaction.mockImplementation(() => Promise.reject(new FirebaseError('permission-denied', 'Missing or insufficient permissions.')))
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(await screen.findByText("Could not delete: You don't have access to this data (signed in with the wrong account?)")).toBeInTheDocument()
   })
 
   it("keeps an edit's archived category: offered first, marked and selected", async () => {

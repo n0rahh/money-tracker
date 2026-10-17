@@ -9,6 +9,7 @@ import { addDays, todayIso } from '../lib/dates'
 import { createTransaction, deleteTransaction, updateTransaction } from '../lib/firestore'
 import { EMPTY_KEYPAD, keypadFromMinor, keypadMinor, pressKey, type KeypadState } from '../lib/keypad'
 import { formatMoney, minorUnitDigits } from '../lib/money'
+import { readErrorText } from '../lib/readError'
 import { orderCategoriesByRecency, suggestions, type Suggestion } from '../lib/stats'
 import type { IsoDate, Kind, Settings, Transaction } from '../lib/types'
 import { AmountDisplay } from './AmountDisplay'
@@ -89,7 +90,7 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     if (selected && selected.kind !== kind) setCategoryId(null)
   }, [kind, selected])
 
-  const fail = (what: string) => (e: unknown) => showToast(e instanceof Error ? `${what}: ${e.message}` : what)
+  const fail = (what: string) => (e: unknown) => showToast(e instanceof Error ? `${what}: ${readErrorText(e)}` : what)
 
   function pick(s: Suggestion) {
     setKind(s.kind)

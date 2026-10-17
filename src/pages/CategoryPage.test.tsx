@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -177,6 +178,15 @@ describe('CategoryPage', () => {
     expect(dayGroups()).toEqual([{ day: 'Thu, Oct 1', rows: ['Gymmonthly pass€40.00'] }])
   })
 
+  it('shows a failed categories query as its error, not as "Category not found", with the way back', () => {
+    useCategories.mockReturnValue({ categories: [], byId: new Map(), loading: false, error: new FirebaseError('unavailable', 'Failed to get documents from server.') })
+    page('/category/c1?month=2026-09')
+    expect(screen.getByText("You're offline and this data isn't cached yet")).toBeInTheDocument()
+    expect(screen.queryByText('Category not found')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to Home' })).toHaveAttribute('href', '/?month=2026-09')
+  })
+
   it('waits for the categories before deciding that the id is unknown', () => {
     withCategories([], true)
     page()
@@ -201,9 +211,9 @@ describe('CategoryPage', () => {
   })
 
   it('shows a failed query as its error, not as twelve empty months', () => {
-    withRows([], { error: new Error('Missing or insufficient permissions.') })
+    withRows([], { error: new FirebaseError('permission-denied', 'Missing or insufficient permissions.') })
     page()
-    expect(screen.getByText('Missing or insufficient permissions.')).toBeInTheDocument()
+    expect(screen.getByText("You don't have access to this data (signed in with the wrong account?)")).toBeInTheDocument()
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
     expect(screen.queryByText(/^Nothing in/)).not.toBeInTheDocument()
   })

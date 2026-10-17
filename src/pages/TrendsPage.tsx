@@ -11,6 +11,7 @@ import { useTransactions } from '../hooks/useTransactions'
 import { useVisibilityTick } from '../hooks/useVisibilityTick'
 import { addMonths, currentMonth, monthLabel, monthRange, monthShortLabel } from '../lib/dates'
 import { formatMoney } from '../lib/money'
+import { readErrorText } from '../lib/readError'
 import { monthlyTotals, percentChange, rangeMonths } from '../lib/stats'
 import type { MonthTotals, RangeKey } from '../lib/stats'
 import type { IsoMonth } from '../lib/types'
@@ -123,7 +124,7 @@ export function TrendsPage() {
     return (
       <>
         {header}
-        <p className="mt-4 text-center text-sm text-danger">{categoriesError.message}</p>
+        <p className="mt-4 text-center text-sm text-danger">{readErrorText(categoriesError)}</p>
       </>
     )
   }
@@ -132,7 +133,7 @@ export function TrendsPage() {
   let data
   if (loading) data = loadingLine
   // A failed query is not a range of empty months: its error stands alone.
-  else if (error) data = <p className="mt-4 text-center text-sm text-danger">{error.message}</p>
+  else if (error) data = <p className="mt-4 text-center text-sm text-danger">{readErrorText(error)}</p>
   else if (rows.every((r) => r.expense === 0 && r.income === 0)) data = <p className="mt-6 text-center text-sm text-muted">{emptyText}</p>
   else {
     // Newest first; each month against the one before it, the first against the month before the range.

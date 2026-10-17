@@ -10,12 +10,13 @@ import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
 import { currentMonth, isIsoMonth, lastMonths, monthLabel, monthOf, monthRange, monthShortLabel, todayIso } from '../lib/dates'
 import { formatMoney } from '../lib/money'
+import { readErrorText } from '../lib/readError'
 import { categoryMonthlyTotals, groupByDay } from '../lib/stats'
 import type { IsoMonth } from '../lib/types'
 
 export function CategoryPage() {
   const { id = '' } = useParams()
-  const { byId, loading: categoriesLoading } = useCategories()
+  const { byId, loading: categoriesLoading, error: categoriesError } = useCategories()
   const { settings, loading: settingsLoading } = useSettings()
   const { openEdit } = useAddSheet()
   const thisMonth = currentMonth()
@@ -56,6 +57,16 @@ export function CategoryPage() {
     )
   }
 
+  if (categoriesError) {
+    // Checked before the id: without the categories every id would read "Category not found".
+    return (
+      <>
+        <header className="flex items-center py-3">{back}</header>
+        <p className="mt-4 text-center text-sm text-danger">{readErrorText(categoriesError)}</p>
+      </>
+    )
+  }
+
   if (!category) {
     return (
       <header className="flex items-center gap-3 py-3">
@@ -84,7 +95,7 @@ export function CategoryPage() {
         loadingLine
       ) : error ? (
         // A failed query is not twelve empty months: its error stands alone.
-        <p className="mt-4 text-center text-sm text-danger">{error.message}</p>
+        <p className="mt-4 text-center text-sm text-danger">{readErrorText(error)}</p>
       ) : (
         <>
           <section className="rounded-card border border-border bg-surface p-4">

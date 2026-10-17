@@ -1,5 +1,6 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -398,9 +399,9 @@ describe('TrendsPage', () => {
   })
 
   it('shows a failed categories query as its error, with no tables of "Uncategorized" rows', () => {
-    useCategories.mockReturnValue({ categories: [], byId: new Map(), loading: false, error: new Error('Missing or insufficient permissions.') })
+    useCategories.mockReturnValue({ categories: [], byId: new Map(), loading: false, error: new FirebaseError('permission-denied', 'Missing or insufficient permissions.') })
     renderPage()
-    expect(screen.getByText('Missing or insufficient permissions.')).toBeInTheDocument()
+    expect(screen.getByText("You don't have access to this data (signed in with the wrong account?)")).toBeInTheDocument()
     expect(screen.queryByText('Uncategorized')).not.toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Spending by month' })).not.toBeInTheDocument()
@@ -410,8 +411,8 @@ describe('TrendsPage', () => {
     answerRanges(SIX_MONTHS)
     renderPage()
     expect(screen.getByText('Loading…')).toBeInTheDocument()
-    fail(SIX_MONTHS, new Error('Missing or insufficient permissions.'))
-    expect(screen.getByText('Missing or insufficient permissions.')).toBeInTheDocument()
+    fail(SIX_MONTHS, new FirebaseError('resource-exhausted', 'Quota exceeded.'))
+    expect(screen.getByText('Firebase quota reached, data will refresh after midnight PT')).toBeInTheDocument()
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'Spending by month' })).not.toBeInTheDocument()
     expect(screen.queryByRole('table', { name: 'Monthly totals' })).not.toBeInTheDocument()
@@ -526,8 +527,8 @@ describe('TrendsPage', () => {
       expect(compare().getByText('Loading…')).toBeInTheDocument()
       expect(compare().queryByText('Nothing to compare yet.')).not.toBeInTheDocument()
 
-      fail(SEP_OCT, new Error('Quota exceeded.'))
-      expect(compare().getByText('Quota exceeded.')).toBeInTheDocument()
+      fail(SEP_OCT, new FirebaseError('unavailable', 'Failed to get documents from server.'))
+      expect(compare().getByText("You're offline and this data isn't cached yet")).toBeInTheDocument()
       expect(compare().queryByText('Nothing to compare yet.')).not.toBeInTheDocument()
       expect(compare().queryByRole('table')).not.toBeInTheDocument()
       expect(barLabels()).toHaveLength(6)

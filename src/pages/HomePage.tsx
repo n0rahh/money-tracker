@@ -15,6 +15,7 @@ import { useTransactions } from '../hooks/useTransactions'
 import { useVisibilityTick } from '../hooks/useVisibilityTick'
 import { addMonths, currentMonth, isIsoMonth, monthLabel, monthOf, monthRange, todayIso } from '../lib/dates'
 import { formatMoney } from '../lib/money'
+import { readErrorText } from '../lib/readError'
 import { categoryDeltas, groupByDay, paceComparison, totalsByCategory, totalsByDay, totalsByKind } from '../lib/stats'
 import type { IsoDate, IsoMonth } from '../lib/types'
 
@@ -99,7 +100,7 @@ export function HomePage() {
       <SummaryCard totals={totals} currency={currency} locale={locale} syncing={pending} />
       {/* Like the strip and the breakdown, only for a month with entries: an empty month has its own empty state. */}
       {pace && !loading && transactions.length > 0 ? <PaceLine pace={pace} currency={currency} locale={locale} /> : null}
-      {error ? <p className="mt-4 text-center text-sm text-danger">{error.message}</p> : null}
+      {error ? <p className="mt-4 text-center text-sm text-danger">{readErrorText(error)}</p> : null}
       {loading ? (
         loadingLine
       ) : transactions.length === 0 ? (
