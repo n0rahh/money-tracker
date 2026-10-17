@@ -51,3 +51,8 @@ Device: iPhone, iOS 26+, Safari. URL: https://money-tracker-vlad.web.app
 - [ ] Category page: 12 bars, average per month, tapping a bar lists that month, tapping a row opens the edit sheet; an archived category still opens.
 - [ ] Add sheet: "Quick add" chips appear for repeated purchases; tapping one fills amount, category and note; a combo already logged today is not offered; no chips when editing.
 - [ ] Resume the installed app on a new calendar month: Home follows it.
+- [ ] Add sheet at 390×844 (iPhone 12–14 size): both category rows show without scrolling; the Quick add row disappears after the first digit.
+- [ ] Trends opened offline (airplane mode) shows "Offline — months you haven't opened may be missing" beside the heading.
+- [ ] Compare → tap a category → Back returns to Compare with the same months A and B.
+- [ ] While Home shows a linked month (e.g. opened from Trends), tapping the Home tab returns to the current month.
+- [ ] An "Uncategorized" breakdown row (category removed in the console) is not tappable.
