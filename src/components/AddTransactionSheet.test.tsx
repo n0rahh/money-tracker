@@ -287,28 +287,59 @@ describe('AddTransactionSheet', () => {
       expect(quickAddChips()).toEqual(['Coffee · €3.50', 'Coffee · €4.20 · oat latte', 'Salary · €5,000.00', 'Lunch · €12.00 · canteen'])
     })
 
-    it('fills the amount and the category from a tapped chip, ready to save', async () => {
+    it('fills the amount and the category from a tapped chip, ready to save, and steps aside', async () => {
       const user = userEvent.setup()
       setup()
       await user.click(screen.getByText('open-add'))
       await user.click(screen.getByRole('button', { name: 'Coffee · €3.50' }))
       expect(screen.getByTestId('amount-expr')).toHaveTextContent(/^3\.5$/)
       expect(within(screen.getByRole('group', { name: 'Category' })).getByRole('button', { name: 'Coffee' })).toHaveAttribute('aria-pressed', 'true')
+      expect(quickAdd()).not.toBeInTheDocument()
       const save = screen.getByRole('button', { name: 'Add €3.50 · Coffee' })
       expect(save).toBeEnabled()
       await user.click(save)
       expect(createTransaction).toHaveBeenCalledWith({ kind: 'expense', amount: 350, categoryId: 'c1', note: '', date: '2026-10-17' })
     })
 
-    it("replaces what was typed with the chip's amount and note, and takes its kind", async () => {
+    it('shows on open and goes from the first digit, so both rows of categories stay in view', async () => {
       const user = userEvent.setup()
       setup()
       await user.click(screen.getByText('open-add'))
-      await user.click(screen.getByRole('button', { name: '9' }))
-      await user.type(screen.getByLabelText('Note'), 'draft')
+      expect(quickAdd()).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: '1' }))
+      expect(quickAdd()).not.toBeInTheDocument()
+      // Back with nothing typed and no category picked.
+      await user.click(screen.getByRole('button', { name: 'Clear' }))
+      expect(quickAdd()).toBeInTheDocument()
+    })
+
+    it('goes once a category is picked', async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.click(within(screen.getByRole('group', { name: 'Category' })).getByRole('button', { name: 'Lunch' }))
+      expect(quickAdd()).not.toBeInTheDocument()
+      expect(screen.getByTestId('amount-expr')).toHaveTextContent(/^0$/) // the amount is still to be typed
+    })
+
+    it("takes the chip's kind and replaces a note typed before it", async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.click(screen.getByRole('radio', { name: 'Income' }))
+      await user.type(screen.getByLabelText('Note'), 'draft') // a note leaves the row in place
       await user.click(screen.getByRole('button', { name: 'Coffee · €4.20 · oat latte' }))
+      expect(screen.getByRole('radio', { name: 'Expense' })).toBeChecked()
       expect(screen.getByTestId('amount-expr')).toHaveTextContent(/^4\.2$/)
       expect(screen.getByLabelText('Note')).toHaveValue('oat latte')
+      expect(screen.getByRole('button', { name: 'Add €4.20 · Coffee' })).toBeEnabled()
+    })
+
+    it('clears a typed note for a chip without one, and an income chip switches to Income', async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.type(screen.getByLabelText('Note'), 'draft')
       await user.click(screen.getByRole('button', { name: 'Salary · €5,000.00' }))
       expect(screen.getByRole('radio', { name: 'Income' })).toBeChecked()
       expect(screen.getByTestId('amount-expr')).toHaveTextContent(/^5000$/)
@@ -350,18 +381,14 @@ describe('AddTransactionSheet', () => {
       expect(quickAddChips()).toEqual(['Salary · €5,000.00', 'Lunch · €12.00 · canteen', 'Lunch · €9.90'])
     })
 
-    it('labels a removed category Uncategorized; its chip fills the rest and asks for a category', async () => {
+    it('never offers a combo whose category was removed, nor lets it take a slot', async () => {
+      // Used five times, more than any other combo, but its category was deleted by hand in the console.
       const gone: Combo = { kind: 'expense', categoryId: 'removed-in-console', amount: 700, note: 'gym' }
-      withRows(logged(gone, ['2026-10-10', '2026-10-03']))
+      withRows([...RECENT, ...logged(gone, ['2026-10-14', '2026-10-11', '2026-10-09', '2026-10-07', '2026-10-03'])])
       const user = userEvent.setup()
       setup()
       await user.click(screen.getByText('open-add'))
-      await user.click(screen.getByRole('button', { name: 'Uncategorized · €7.00 · gym' }))
-      expect(screen.getByTestId('amount-expr')).toHaveTextContent(/^7$/)
-      expect(screen.getByLabelText('Note')).toHaveValue('gym')
-      expect(screen.getByRole('button', { name: /enter amount/i })).toBeDisabled()
-      await user.click(screen.getByRole('button', { name: 'Coffee' }))
-      expect(screen.getByRole('button', { name: 'Add €7.00 · Coffee' })).toBeEnabled()
+      expect(quickAddChips()).toEqual(['Coffee · €3.50', 'Coffee · €4.20 · oat latte', 'Salary · €5,000.00', 'Lunch · €12.00 · canteen'])
     })
 
     it('reads the 60 days up to the day it opened, which also order the categories', async () => {

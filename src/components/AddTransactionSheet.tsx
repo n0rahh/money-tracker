@@ -73,11 +73,14 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     const active = orderCategoriesByRecency(categories, recent, kind)
     return archivedOriginal?.kind === kind ? [archivedOriginal, ...active] : active
   }, [categories, recent, kind, archivedOriginal])
-  // New entries only, and only once the categories are known: like the category row, quick add never offers an archived category to a new entry.
+  // New entries only, and only once the categories are known: like the category row, quick add offers only active categories,
+  // never an archived one or one removed by hand (filtered before ranking, so neither takes a slot).
   const quickAdd = useMemo(
-    () => (editing || categoriesLoading ? [] : suggestions(recent.filter((t) => !byId.get(t.categoryId)?.archived), to)),
+    () => (editing || categoriesLoading ? [] : suggestions(recent.filter((t) => byId.get(t.categoryId)?.archived === false), to)),
     [editing, categoriesLoading, recent, byId, to],
   )
+  // Only until the first digit or category: from then on the row would just push the second row of categories below the fold.
+  const offerQuickAdd = keypad.expr === '' && categoryId === null
   const selected = categories.find((c) => c.id === categoryId)
   const amount = keypadMinor(keypad, digits)
   const canSave = amount > 0 && selected !== undefined && selected.kind === kind
@@ -146,7 +149,7 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
           <SegmentedControl ariaLabel="Kind" value={kind} onChange={setKind} options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
           <AmountDisplay state={keypad} currency={currency} locale={locale} kind={kind} />
         </div>
-        <SuggestionChips items={quickAdd} byId={byId} currency={currency} locale={locale} onPick={pick} />
+        {offerQuickAdd ? <SuggestionChips items={quickAdd} byId={byId} currency={currency} locale={locale} onPick={pick} /> : null}
         <DateChips value={date} onChange={setDate} />
         <input
           value={note}
