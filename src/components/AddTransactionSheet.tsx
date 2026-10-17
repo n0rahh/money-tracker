@@ -5,11 +5,11 @@ import { useToast } from '../context/ToastContext'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
-import { currentMonth, monthRange, todayIso } from '../lib/dates'
+import { addDays, todayIso } from '../lib/dates'
 import { createTransaction, deleteTransaction, updateTransaction } from '../lib/firestore'
 import { EMPTY_KEYPAD, keypadFromMinor, keypadMinor, pressKey, type KeypadState } from '../lib/keypad'
 import { formatMoney, minorUnitDigits } from '../lib/money'
-import { orderCategoriesByRecency } from '../lib/stats'
+import { orderCategoriesByRecency, suggestions, type Suggestion } from '../lib/stats'
 import type { IsoDate, Kind, Settings, Transaction } from '../lib/types'
 import { AmountDisplay } from './AmountDisplay'
 import { Button } from './Button'
@@ -18,6 +18,7 @@ import { DateChips } from './DateChips'
 import { Keypad } from './Keypad'
 import { SegmentedControl } from './SegmentedControl'
 import { Sheet } from './Sheet'
+import { SuggestionChips } from './SuggestionChips'
 
 export function AddTransactionSheet() {
   const { state, close, lastKind, rememberKind } = useAddSheet()
@@ -48,8 +49,12 @@ type FormProps = {
 
 function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose }: FormProps) {
   const { showToast } = useToast()
-  const { categories } = useCategories()
-  const { from, to } = monthRange(currentMonth())
+  const { categories, byId, loading: categoriesLoading } = useCategories()
+  // The last 60 days feed both the quick-add chips and the category order. Fixed for the whole open, so passing midnight never resubscribes.
+  const [{ from, to }] = useState(() => {
+    const today = todayIso()
+    return { from: addDays(today, -60), to: today }
+  })
   const { transactions: recent } = useTransactions(from, to)
 
   const currency = settings?.currency ?? 'USD'
@@ -68,6 +73,11 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     const active = orderCategoriesByRecency(categories, recent, kind)
     return archivedOriginal?.kind === kind ? [archivedOriginal, ...active] : active
   }, [categories, recent, kind, archivedOriginal])
+  // New entries only, and only once the categories are known: like the category row, quick add never offers an archived category to a new entry.
+  const quickAdd = useMemo(
+    () => (editing || categoriesLoading ? [] : suggestions(recent.filter((t) => !byId.get(t.categoryId)?.archived), to)),
+    [editing, categoriesLoading, recent, byId, to],
+  )
   const selected = categories.find((c) => c.id === categoryId)
   const amount = keypadMinor(keypad, digits)
   const canSave = amount > 0 && selected !== undefined && selected.kind === kind
@@ -77,6 +87,13 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
   }, [kind, selected])
 
   const fail = (what: string) => (e: unknown) => showToast(e instanceof Error ? `${what}: ${e.message}` : what)
+
+  function pick(s: Suggestion) {
+    setKind(s.kind)
+    setKeypad(keypadFromMinor(s.amount, digits))
+    setCategoryId(s.categoryId)
+    setNote(s.note)
+  }
 
   function save() {
     if (!canSave || !selected) return
@@ -124,11 +141,12 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
       }
     >
       <div className="flex flex-col gap-3">
-        {/* Stays in view while the date, note and categories scroll beneath it; below 700 px of height it scrolls with them so the chips stay reachable. */}
+        {/* Stays in view while the quick-add chips, date, note and categories scroll beneath it; below 700 px of height it scrolls with them so the chips stay reachable. */}
         <div className="sticky top-0 z-10 -mx-4 bg-surface px-4 pb-2 flex flex-col gap-3 short:static">
           <SegmentedControl ariaLabel="Kind" value={kind} onChange={setKind} options={[{ value: 'expense', label: 'Expense' }, { value: 'income', label: 'Income' }]} />
           <AmountDisplay state={keypad} currency={currency} locale={locale} kind={kind} />
         </div>
+        <SuggestionChips items={quickAdd} byId={byId} currency={currency} locale={locale} onPick={pick} />
         <DateChips value={date} onChange={setDate} />
         <input
           value={note}
