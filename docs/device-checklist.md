@@ -46,12 +46,12 @@ Device: iPhone, iOS 26+, Safari. URL: https://money-tracker-vlad.web.app
 - [ ] Category filter chips narrow the bars; income dots disappear and income/net read "—" while a filter is on.
 - [ ] Phone table (375 px): Month · Spent · Δ with income/net on a second line, no horizontal scroll; Compare shows Category · A · B · Δ badge.
 - [ ] Compare: change Month A while scrolled to the bottom; the page does not jump; rows sort by biggest change, "new" and "−100 %" appear where expected; tapping a category opens its page on month B.
-- [ ] Home (current month): pace line reads "… by day N · last month by day N: … ±x %"; breakdown rows show deltas with the "vs previous month" legend; the daily strip highlights today and tapping a day scrolls to it.
+- [ ] Home (current month): pace line reads "… by day N · last month by day N: … ±x %"; breakdown rows show deltas with the "vs last month to date" legend; the daily strip highlights today and tapping a day scrolls to it.
 - [ ] Home on a past month: no pace line; tapping a breakdown row opens the category page on that month; Back returns to that month.
 - [ ] Category page: 12 bars, average per month, tapping a bar lists that month, tapping a row opens the edit sheet; an archived category still opens.
 - [ ] Add sheet: "Quick add" chips appear for repeated purchases; tapping one fills amount, category and note; a combo already logged today is not offered; no chips when editing.
 - [ ] Resume the installed app on a new calendar month: Home follows it.
-- [ ] Add sheet at 390×844 (iPhone 12–14 size): both category rows show without scrolling; the Quick add row disappears after the first digit.
+- [ ] Add sheet at 390×844: after the first digit both category rows are visible without scrolling (Quick add disappears on the first digit or when a category is picked).
 - [ ] Trends opened offline (airplane mode) shows "Offline — months you haven't opened may be missing" beside the heading.
 - [ ] Compare → tap a category → Back returns to Compare with the same months A and B.
 - [ ] While Home shows a linked month (e.g. opened from Trends), tapping the Home tab returns to the current month.
