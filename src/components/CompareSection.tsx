@@ -20,6 +20,10 @@ const AMOUNT = `${CELL} whitespace-nowrap text-right`
 const HEAD = `${CELL} text-xs font-semibold uppercase tracking-wider text-muted`
 /** The category column takes what the amounts leave and truncates long names, so the table fits a phone. */
 const NAME = 'w-full max-w-0 text-left'
+/** A and B in a smaller size below `sm`, which leaves the names their room on a phone. */
+const MONTH_AMOUNT = `${AMOUNT} text-xs sm:text-sm`
+/** The icon only from `sm` up: below it, its width goes to the name. */
+const ICON = 'hidden shrink-0 sm:inline-flex'
 
 /** Spending per category in two chosen months, biggest change first. B is compared against A (B is "current"). */
 export function CompareSection({ byId, currency, locale }: Props) {
@@ -89,18 +93,22 @@ export function CompareSection({ byId, currency, locale }: Props) {
                     {/* Opens on month B, the one compared; a category removed by hand has no page to open, so its row is not a link. */}
                     {category ? (
                       <Link to={`/category/${d.categoryId}?month=${b}`} className="flex min-h-11 min-w-0 items-center gap-2">
-                        <CategoryIcon category={category} size={28} />
+                        <span className={ICON}>
+                          <CategoryIcon category={category} size={28} />
+                        </span>
                         <span className="truncate">{category.name}</span>
                       </Link>
                     ) : (
                       <span className="flex min-h-11 min-w-0 items-center gap-2">
-                        <CategoryIcon category={undefined} size={28} />
+                        <span className={ICON}>
+                          <CategoryIcon category={undefined} size={28} />
+                        </span>
                         <span className="truncate">Uncategorized</span>
                       </span>
                     )}
                   </th>
-                  <td className={AMOUNT}>{money(d.previous)}</td>
-                  <td className={AMOUNT}>{money(d.current)}</td>
+                  <td className={MONTH_AMOUNT}>{money(d.previous)}</td>
+                  <td className={MONTH_AMOUNT}>{money(d.current)}</td>
                   <td className={AMOUNT}>
                     <span className="flex flex-col items-end gap-1">
                       {/* Below `sm` the badge alone carries the change, leaving A and B their room. */}
