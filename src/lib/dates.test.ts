@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   addDays, addMonths, currentMonth, dayLabel, daysInMonth, lastMonths, monthLabel, monthOf,
-  monthRange, parseIsoDate, toIsoDate, todayIso,
+  monthRange, monthShortLabel, monthsBetween, parseIsoDate, toIsoDate, todayIso, yearToDateMonths,
 } from './dates'
 
 describe('dates', () => {
@@ -40,5 +40,22 @@ describe('dates', () => {
     expect(dayLabel('2026-10-14', '2026-10-14', 'en')).toBe('Today')
     expect(dayLabel('2026-10-13', '2026-10-14', 'en')).toBe('Yesterday')
     expect(dayLabel('2026-10-01', '2026-10-14', 'en')).toBe('Thu, Oct 1')
+  })
+})
+
+describe('insight date helpers', () => {
+  it('lists months between two months inclusive', () => {
+    expect(monthsBetween('2025-11', '2026-02')).toEqual(['2025-11', '2025-12', '2026-01', '2026-02'])
+    expect(monthsBetween('2026-03', '2026-03')).toEqual(['2026-03'])
+    expect(monthsBetween('2026-04', '2026-03')).toEqual([])
+  })
+  it('lists year-to-date months', () => {
+    expect(yearToDateMonths(new Date(2026, 9, 17))).toEqual(['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'])
+    expect(yearToDateMonths(new Date(2026, 0, 3))).toEqual(['2026-01'])
+  })
+  it('labels months short, with the year only when it differs from the current one', () => {
+    const thisYear = new Date().getFullYear()
+    expect(monthShortLabel(`${thisYear}-10`, 'en')).toBe('Oct')
+    expect(monthShortLabel('2019-03', 'en')).toBe('Mar 19')
   })
 })

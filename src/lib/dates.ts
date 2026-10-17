@@ -60,3 +60,21 @@ export function dayLabel(date: IsoDate, today: IsoDate, locale?: string | null):
 export function lastMonths(end: IsoMonth, count: number): IsoMonth[] {
   return Array.from({ length: count }, (_, i) => addMonths(end, i - (count - 1)))
 }
+
+/** Inclusive ascending list of months; empty when `from` is after `to`. */
+export function monthsBetween(from: IsoMonth, to: IsoMonth): IsoMonth[] {
+  const out: IsoMonth[] = []
+  for (let m = from; m <= to; m = addMonths(m, 1)) out.push(m)
+  return out
+}
+
+export function yearToDateMonths(now: Date = new Date()): IsoMonth[] {
+  return monthsBetween(`${now.getFullYear()}-01`, currentMonth(now))
+}
+
+/** "Oct" in the current year, "Oct 25" otherwise. */
+export function monthShortLabel(month: IsoMonth, locale?: string | null, now: Date = new Date()): string {
+  const [y, m] = month.split('-').map(Number)
+  const label = new Intl.DateTimeFormat(locale ?? undefined, { month: 'short' }).format(new Date(y, m - 1, 1))
+  return y === now.getFullYear() ? label : `${label} ${String(y).slice(-2)}`
+}

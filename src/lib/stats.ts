@@ -1,4 +1,4 @@
-import { daysInMonth } from './dates'
+import { addMonths, currentMonth, daysInMonth, lastMonths, monthOf, yearToDateMonths } from './dates'
 import type { Category, IsoDate, IsoMonth, Kind, Transaction } from './types'
 
 export type KindTotals = { expense: number; income: number; net: number }
@@ -67,4 +67,96 @@ export function orderCategoriesByRecency(categories: Category[], txs: Transactio
   return categories
     .filter((c) => c.kind === kind && !c.archived)
     .sort((a, b) => (lastUse.get(b.id) ?? -1) - (lastUse.get(a.id) ?? -1) || a.order - b.order)
+}
+
+export type RangeKey = '3M' | '6M' | '12M' | 'YTD'
+
+export function rangeMonths(range: RangeKey, now: Date = new Date()): IsoMonth[] {
+  if (range === 'YTD') return yearToDateMonths(now)
+  const count = range === '3M' ? 3 : range === '6M' ? 6 : 12
+  return lastMonths(currentMonth(now), count)
+}
+
+export type MonthTotals = { month: IsoMonth; expense: number; income: number; net: number }
+
+export function monthlyTotals(txs: Transaction[], months: IsoMonth[]): MonthTotals[] {
+  const index = new Map(months.map((m, i) => [m, i]))
+  const rows = months.map((month) => ({ month, expense: 0, income: 0, net: 0 }))
+  for (const t of txs) {
+    const i = index.get(monthOf(t.date))
+    if (i === undefined) continue
+    if (t.kind === 'expense') rows[i].expense += t.amount
+    else rows[i].income += t.amount
+  }
+  for (const r of rows) r.net = r.income - r.expense
+  return rows
+}
+
+export type Pace = { spentToDate: number; previousToDate: number; dayOfMonth: number; deltaPct: number | null }
+
+const pct = (current: number, previous: number): number | null =>
+  previous === 0 ? null : Math.round(((current - previous) / previous) * 100)
+
+export function paceComparison(current: Transaction[], previous: Transaction[], today: IsoDate): Pace {
+  const dayOfMonth = Number(today.slice(8, 10))
+  const previousMonth = addMonths(monthOf(today), -1)
+  const cutoff = Math.min(dayOfMonth, daysInMonth(previousMonth))
+  let spentToDate = 0
+  for (const t of current) if (t.kind === 'expense' && t.date <= today) spentToDate += t.amount
+  let previousToDate = 0
+  for (const t of previous) {
+    if (t.kind !== 'expense' || monthOf(t.date) !== previousMonth) continue
+    if (Number(t.date.slice(8, 10)) <= cutoff) previousToDate += t.amount
+  }
+  return { spentToDate, previousToDate, dayOfMonth, deltaPct: pct(spentToDate, previousToDate) }
+}
+
+export type CategoryDelta = { categoryId: string; current: number; previous: number; delta: number; deltaPct: number | null }
+
+export function categoryDeltas(current: Transaction[], previous: Transaction[], kind: Kind): CategoryDelta[] {
+  const sum = (txs: Transaction[]) => {
+    const m = new Map<string, number>()
+    for (const t of txs) if (t.kind === kind) m.set(t.categoryId, (m.get(t.categoryId) ?? 0) + t.amount)
+    return m
+  }
+  const a = sum(current)
+  const b = sum(previous)
+  const ids = new Set([...a.keys(), ...b.keys()])
+  return [...ids]
+    .map((categoryId) => {
+      const cur = a.get(categoryId) ?? 0
+      const prev = b.get(categoryId) ?? 0
+      return { categoryId, current: cur, previous: prev, delta: cur - prev, deltaPct: cur === 0 && prev > 0 ? -100 : pct(cur, prev) }
+    })
+    .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta) || x.categoryId.localeCompare(y.categoryId))
+}
+
+export type Suggestion = { kind: Kind; categoryId: string; amount: number; note: string; count: number; lastAt: number }
+
+export function suggestions(txs: Transaction[], today: IsoDate, limit = 4): Suggestion[] {
+  const groups = new Map<string, Suggestion & { usedToday: boolean }>()
+  for (const t of txs) {
+    const key = `${t.kind}|${t.categoryId}|${t.amount}|${t.note}`
+    const g = groups.get(key) ?? { kind: t.kind, categoryId: t.categoryId, amount: t.amount, note: t.note, count: 0, lastAt: 0, usedToday: false }
+    g.count += 1
+    g.lastAt = Math.max(g.lastAt, t.at.toMillis())
+    if (t.date === today) g.usedToday = true
+    groups.set(key, g)
+  }
+  return [...groups.values()]
+    .filter((g) => !g.usedToday)
+    .sort((x, y) => y.count - x.count || y.lastAt - x.lastAt)
+    .slice(0, limit)
+    .map(({ usedToday: _usedToday, ...s }) => s)
+}
+
+export function categoryMonthlyTotals(txs: Transaction[], categoryId: string, months: IsoMonth[]): number[] {
+  const index = new Map(months.map((m, i) => [m, i]))
+  const out = months.map(() => 0)
+  for (const t of txs) {
+    if (t.categoryId !== categoryId) continue
+    const i = index.get(monthOf(t.date))
+    if (i !== undefined) out[i] += t.amount
+  }
+  return out
 }
