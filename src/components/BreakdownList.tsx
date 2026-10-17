@@ -1,12 +1,22 @@
 import { CATEGORY_COLORS } from '../lib/categoryColors'
 import { formatMoney } from '../lib/money'
-import type { CategoryTotal } from '../lib/stats'
+import type { CategoryDelta, CategoryTotal } from '../lib/stats'
 import type { Category } from '../lib/types'
 import { CategoryIcon } from './CategoryChip'
+import { DeltaBadge } from './DeltaBadge'
 
-type Props = { rows: CategoryTotal[]; byId: Map<string, Category>; currency: string; locale: string | null }
+type Props = {
+  rows: CategoryTotal[]
+  byId: Map<string, Category>
+  currency: string
+  locale: string | null
+  /** The change against last month by category id; each row then ends with its badge. */
+  deltas?: Map<string, CategoryDelta>
+  /** Makes each row a button that opens its category. */
+  onSelect?: (categoryId: string) => void
+}
 
-export function BreakdownList({ rows, byId, currency, locale }: Props) {
+export function BreakdownList({ rows, byId, currency, locale, deltas, onSelect }: Props) {
   if (rows.length === 0) return null
   const max = rows[0].total
   return (
@@ -16,17 +26,36 @@ export function BreakdownList({ rows, byId, currency, locale }: Props) {
         {rows.map((r) => {
           const category = byId.get(r.categoryId)
           const color = category ? CATEGORY_COLORS[category.color] : CATEGORY_COLORS.slate
-          return (
-            <li key={r.categoryId} className="rounded-chip bg-surface px-3 py-2">
-              <div className="flex items-center gap-3">
+          const delta = deltas?.get(r.categoryId)
+          // Spans only: inside a button the row may hold phrasing content alone.
+          const content = (
+            <>
+              <span className="flex items-center gap-3">
                 <CategoryIcon category={category} size={32} />
                 <span className="flex-1 truncate text-[15px]">{category?.name ?? 'Uncategorized'}</span>
                 <span className="tnum text-[15px] font-medium">{formatMoney(r.total, currency, locale)}</span>
                 <span className="tnum w-10 text-right text-xs text-muted">{Math.round(r.share * 100)}%</span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
-                <div className="h-full rounded-full" style={{ width: `${(r.total / max) * 100}%`, background: color }} />
-              </div>
+              </span>
+              <span className="mt-2 flex items-center gap-2">
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
+                  <span className="block h-full rounded-full" style={{ width: `${(r.total / max) * 100}%`, background: color }} />
+                </span>
+                {/* Under the share, clear of the name; the same minimum slot width in every row keeps the bars comparable. */}
+                {deltas ? (
+                  <span className="flex min-w-14 justify-end">{delta ? <DeltaBadge deltaPct={delta.deltaPct} previous={delta.previous} /> : null}</span>
+                ) : null}
+              </span>
+            </>
+          )
+          return onSelect ? (
+            <li key={r.categoryId}>
+              <button type="button" onClick={() => onSelect(r.categoryId)} className="block w-full rounded-chip bg-surface px-3 py-2 text-left active:bg-surface-2">
+                {content}
+              </button>
+            </li>
+          ) : (
+            <li key={r.categoryId} className="rounded-chip bg-surface px-3 py-2">
+              {content}
             </li>
           )
         })}

@@ -17,7 +17,8 @@ export function TransactionList({ groups, byId, currency, locale, today, onSelec
   return (
     <section className="mt-4">
       {groups.map((g) => (
-        <div key={g.date} className="mb-3">
+        // The id is the daily strip's jump target; the scroll margin keeps the day's heading clear of the status bar.
+        <div key={g.date} id={`day-${g.date}`} className="mb-3 scroll-mt-[max(0.5rem,env(safe-area-inset-top))]">
           <div className="flex items-baseline justify-between px-1 py-1">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted">{dayLabel(g.date, today, locale)}</h3>
             <span className="tnum text-xs text-muted">
