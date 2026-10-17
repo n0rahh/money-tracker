@@ -39,3 +39,15 @@ Device: iPhone, iOS 26+, Safari. URL: https://money-tracker-vlad.web.app
 - [ ] First month query on the deployed project succeeds (no failed-precondition: the composite index is built).
 - [ ] (optional) Settings shows the "Install as an app" hint in a Safari tab and not in the installed app.
 - [ ] (optional) After a redeploy, the installed app shows the new build on the second launch (sw.js is served no-cache).
+
+## Milestone 2 (insights)
+- [ ] Trends tab: 6M bars render with income dots; switching to 3M / 12M / YTD re-draws without a stale frame; the range is remembered after a reload.
+- [ ] Tapping a bar shows that month's totals and "Open in Home" opens Home on that month; Back returns to Trends.
+- [ ] Category filter chips narrow the bars; income dots disappear and income/net read "—" while a filter is on.
+- [ ] Phone table (375 px): Month · Spent · Δ with income/net on a second line, no horizontal scroll; Compare shows Category · A · B · Δ badge.
+- [ ] Compare: change Month A while scrolled to the bottom; the page does not jump; rows sort by biggest change, "new" and "−100 %" appear where expected; tapping a category opens its page on month B.
+- [ ] Home (current month): pace line reads "… by day N · last month by day N: … ±x %"; breakdown rows show deltas with the "vs previous month" legend; the daily strip highlights today and tapping a day scrolls to it.
+- [ ] Home on a past month: no pace line; tapping a breakdown row opens the category page on that month; Back returns to that month.
+- [ ] Category page: 12 bars, average per month, tapping a bar lists that month, tapping a row opens the edit sheet; an archived category still opens.
+- [ ] Add sheet: "Quick add" chips appear for repeated purchases; tapping one fills amount, category and note; a combo already logged today is not offered; no chips when editing.
+- [ ] Resume the installed app on a new calendar month: Home follows it.

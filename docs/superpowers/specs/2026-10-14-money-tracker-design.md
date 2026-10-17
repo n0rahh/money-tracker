@@ -1,7 +1,7 @@
 # Money Tracker — Design Spec
 
 Date: 2026-10-14
-Status: Milestone 1 implemented (branch feat/m1-core-logging, 2026-10-17); decisions in §15
+Status: Milestones 1 and 2 implemented (2026-10-17); decisions in §15
 
 ## 1. Summary
 
@@ -196,7 +196,7 @@ Full-height bottom sheet, opens in ≈180 ms:
 5. **Category grid**: 2 horizontally scrolling rows of chips (icon + name) in category colors; most-recently used first; selected chip is filled. Archived categories are hidden, except that when editing an old entry whose category was archived, that category is shown first as a selected chip labelled "… (archived)" so the entry can be saved unchanged.
 6. **Save** button reads "Add €12.50 · Groceries" and is disabled until amount > 0 and a category is chosen. The keypad and the Save button are fixed at the bottom of the sheet and the amount stays pinned at the top; only the date, note and category rows scroll on short phones.
 7. Edit mode: same sheet prefilled, with Delete (confirm) in the header.
-8. (M2) **Suggestion chips** above the keypad: the 4 most frequent (category, amount, note) combos of the last 60 days, e.g. "☕ Coffee €3.50". One tap fills everything; Save confirms.
+8. (M2) **Suggestion chips** in a "Quick add" row directly under the amount block: the 4 most frequent (category, amount, note) combos of the last 60 days, e.g. "☕ Coffee €3.50", never for an archived category and never one already logged today. One tap fills kind, amount, category and note; Save confirms.
 
 Tap count for a normal expense: + → digits → category → Save.
 
@@ -260,7 +260,7 @@ rose, red, orange, amber, yellow, lime, green, emerald, teal, cyan, sky, blue, i
 
 ### Components
 
-`Button` (primary / ghost / danger), `Sheet` (bottom sheet, full-height variant, swipe-down to close is a nice-to-have), `SegmentedControl`, `Keypad`, `AmountDisplay`, `CategoryChip`, `IconPicker`, `ColorPicker`, `MonthSwitcher`, `SummaryCard`, `BreakdownRow`, `TransactionRow`, `DayGroup`, `EmptyState`, `Toast`, and in M2 `BarChart` and `Sparkline` as small hand-written SVG components (no chart library: smaller bundle, exact theming).
+`Button` (primary / ghost / danger), `Sheet` (bottom sheet, full-height variant, swipe-down to close is a nice-to-have), `SegmentedControl`, `Keypad`, `AmountDisplay`, `CategoryChip`, `IconPicker`, `ColorPicker`, `MonthSwitcher`, `SummaryCard`, `BreakdownRow`, `TransactionRow`, `DayGroup`, `EmptyState`, `Toast`, and in M2 `BarChart`, `DailyStrip` and `DeltaBadge` as small hand-written HTML/CSS components (no chart library: smaller bundle, exact theming, real buttons for accessibility).
 
 ### Motion and touch
 
@@ -298,7 +298,7 @@ Each milestone ships a usable app and gets its own implementation plan. Mileston
 |---|---|---|
 | **M0 — Setup** (≈ 20 min, manual) | Auth spike done (popup works in the installed food-tracker). Create Firebase project `money-tracker-vlad` (Spark; Firestore Standard/Native, region `eur3`; Google provider; Hosting). Until then the app runs on the emulators. | The project exists; rules deployed. |
 | **M1 — Core logging** (≈ 1 weekend) | Scaffold, theme, auth, rules + rules tests, categories (seed + manage), add/edit/delete with keypad, Home month view with breakdown and day-grouped list, month switcher, currency first-run, PWA manifest/icons/service worker, deploy, device checklist. | On the iPhone home screen: add an expense in under 5 s; works offline and syncs; only your account works. |
-| **M2 — Insights** (≈ 2 evenings) | Trends tab (monthly bars, range chips, category filter, table), Compare A vs. B, category detail, pace line and Δ on Home, daily strip, suggestion chips. | "Was this month more expensive than last, and why?" is answered in two taps. |
+| **M2 — Insights** (implemented 2026-10-17) | Trends tab (monthly bars, range chips, category filter, table), Compare A vs. B, category detail, pace line and Δ on Home, daily strip, suggestion chips. Home keeps the viewed month in the URL so drill-downs and Back return to it. | "Was this month more expensive than last, and why?" is answered in two taps. |
 | **M3 — Power features** (≈ 2 evenings) | Budgets with progress, recurring transactions, search/filter of the month list on Home, month/year picker, export JSON/CSV, import CSV, undo toast on delete, bundle/perf pass (lazy routes; Firebase alone is ~189 kB gzipped, so the realistic target is ≤ 320 kB total). | Monthly bills appear by themselves; old data imported; backup is one tap. |
 | **M4 — Siri & Apple Watch** (≈ 1 evening) | Link an email/password credential for REST, Settings page recipe, Shortcut "Add expense" that signs in and POSTs to Firestore, `source: "shortcut"`, watch complication and Siri phrase, test from the watch with the phone away. | "Hey Siri, add expense" on the watch creates a transaction that appears in the app within seconds. |
 

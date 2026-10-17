@@ -66,6 +66,6 @@ The build inlines `.env.local`, so it must hold the real config (and `VITE_USE_E
 | Milestone | Scope |
 |---|---|
 | M1 (implemented; first deploy and the iPhone checklist pending) | Sign-in, categories (seeded + editable), add/edit/delete with keypad, month view, PWA, deploy |
-| M2 | Trends (monthly bars, ranges, category filter), compare two months, category detail, pace line, suggestion chips |
+| M2 (implemented) | Trends (monthly bars, ranges, category filter), compare two months, category detail, pace line, daily strip, suggestion chips |
 | M3 | Budgets, recurring transactions, search, month picker, export/import (Money Manager backup), undo, perf pass |
 | M4 | Siri + Apple Watch quick add through a Shortcut |
