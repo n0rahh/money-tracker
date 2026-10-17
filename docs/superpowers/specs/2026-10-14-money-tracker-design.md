@@ -83,7 +83,7 @@ Apple Shortcut (iPhone / Apple Watch / Siri)  ──REST──▶  Firebase Auth
 
 | Resource | Free allowance | Expected use |
 |---|---|---|
-| Firestore reads | 50,000 / day | Cold start of Home ≈ 300 (this month + last month); Trends 12 months ≈ 2,000 first time, then only changed docs. Typical day < 1,000. |
+| Firestore reads | 50,000 / day | At ~150 entries/month: a cold Home open ≈ 300 (this month + last month), each Add-sheet open ≈ 300 (its own 61-day listener), Trends 6M ≈ 1,050 and 12M ≈ 1,950, a category page ≈ 1,800, Compare ≈ 2 months (month-shaped queries shared with Home). A logging-only day ≈ 3–4k; a Trends-heavy day ≈ 10–13k. Listeners re-attached within 30 minutes re-use their resume token and read only changes. |
 | Firestore writes | 20,000 / day | ≈ 5–10 / day. |
 | Firestore storage | 1 GiB | ≈ 300 bytes per transaction → under 1 MB per year. |
 | Hosting | 10 GB storage, ~10 GB/month transfer | Bundle ≈ 1 MB; a handful of loads per day. |
@@ -213,7 +213,7 @@ Tap count for a normal expense: + → digits → category → Save.
 - **Category filter** chips (multi-select) narrow the bars to those categories.
 - **Table** under the chart: Month · Spent · Income · Net · Δ vs. previous month.
 - **Compare two months**: pick A and B → per-category table with absolute and % deltas, sorted by biggest change. Answers "why was September so expensive?".
-- **Category detail** (from anywhere a category is shown): 12-month bars for that category, average per month, and its transaction list.
+- **Category detail** (from a Home breakdown row, a Compare row, or the "History" link in the category edit sheet; transaction rows open the edit sheet instead): 12-month bars for that category, average per month, and its transaction list for the tapped month. Back returns to where you came from.
 
 ### Settings
 
@@ -283,7 +283,7 @@ rose, red, orange, amber, yellow, lime, green, emerald, teal, cyan, sky, blue, i
 - **Category share**: category total ÷ total of the same kind in the period.
 - **Day totals**: sums grouped by `date`; the daily strip plots expenses only.
 - **Pace** (M2): spent from day 1 through today, compared with the previous month over the same number of days; delta shown in % with a sign. Only shown for the current month.
-- **Δ vs. last month** (M2): per-category difference of full-month totals, absolute and %; new categories show "new"; categories that dropped to zero show −100 %.
+- **Δ vs. last month** (M2): per-category difference, absolute and %; new categories show "new"; categories that dropped to zero show −100 %. For a past month both sides are full-month totals; for the current month the previous month is cut to the same day of month (the pace rule), and the legend reads "vs last month to date". On phones only the % badge is shown.
 - **Monthly trend** (M2): one bar per month over the range; income plotted as dots; the range is inclusive of the current month.
 - **Compare A vs. B** (M2): per-category table of two arbitrary months, sorted by |Δ|.
 - **Suggestions** (M2): group transactions of the last 60 days by (kind, categoryId, amount, note), rank by count then recency, take 4, exclude combos already used today.
@@ -307,7 +307,7 @@ Stretch ideas, deliberately out of scope until the above exists: accounts and tr
 ## 11. Error handling and edge cases
 
 - **Offline writes**: Firestore queues them; the UI shows the entry immediately. A small "Syncing…" badge appears in the top-right corner of the summary card while `hasPendingWrites` is true for the visible month (absolutely positioned, so nothing shifts), and disappears on sync. No blocking spinners on add.
-- **Quota exhausted** (practically impossible, but on Spark the service stops instead of billing): reads fail with `resource-exhausted`; M1 shows the raw error under the summary card; a friendlier banner ("Firebase quota reached, data will refresh after midnight PT") is deferred to M2.
+- **Quota exhausted** (practically impossible, but on Spark the service stops instead of billing): reads fail with `resource-exhausted`; every page maps read errors through one helper: "Firebase quota reached, data will refresh after midnight PT", "You don't have access to this data (signed in with the wrong account?)" for `permission-denied`, "You're offline and this data isn't cached yet" for `unavailable`. Cached data stays usable. Trends, Compare and the category page also show "Updating…" while a view is served from the cache only, or "Offline — months you haven't opened may be missing" when offline.
 - **Wrong Google account**: immediate sign-out with "This app only accepts vlad.herasymovychh@gmail.com".
 - **Deleted/archived category on an old transaction**: rows render with the stored category name if the category document still exists (archived) or "Uncategorized" in slate if it was removed by hand in the console.
 - **Time zones and travel**: `date` is computed on the device at entry time; a transaction stays on the day you logged it. Month boundaries never shift retroactively.
