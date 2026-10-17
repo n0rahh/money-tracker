@@ -5,6 +5,7 @@ import { AddSheetProvider } from './context/AddSheetContext'
 import { AuthProvider } from './context/AuthContext'
 import { ToastProvider } from './context/ToastContext'
 import { CategoriesPage } from './pages/CategoriesPage'
+import { CategoryPage } from './pages/CategoryPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -21,6 +22,7 @@ export default function App() {
                 <Route element={<AppShell />}>
                   <Route index element={<HomePage />} />
                   <Route path="categories" element={<CategoriesPage />} />
+                  <Route path="category/:id" element={<CategoryPage />} />
                   <Route path="settings" element={<SettingsPage />} />
                 </Route>
               </Route>
