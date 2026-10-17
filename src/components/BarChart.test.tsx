@@ -87,4 +87,13 @@ describe('BarChart', () => {
     expect(screen.getByText('No data for this range.')).toBeInTheDocument()
     expect(screen.queryByRole('group')).toBeNull()
   })
+
+  it('colours the selected bar and its label apart from the others', () => {
+    render(<BarChart bars={BARS} selectedKey="2026-09" formatValue={eur} ariaLabel="Spending by month" />)
+    const labelOf = (name: RegExp, text: string) => within(screen.getByRole('button', { name })).getByText(text)
+    expect(barOf(/^Sep/)).toHaveClass('bg-accent')
+    expect(barOf(/^Aug/)).toHaveClass('bg-expense/80')
+    expect(labelOf(/^Sep/, 'Sep')).toHaveClass('text-text')
+    expect(labelOf(/^Aug/, 'Aug')).toHaveClass('text-muted')
+  })
 })
