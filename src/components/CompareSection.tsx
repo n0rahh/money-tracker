@@ -6,6 +6,7 @@ import { formatMoney } from '../lib/money'
 import { readErrorText } from '../lib/readError'
 import { categoryDeltas } from '../lib/stats'
 import type { Category, IsoMonth } from '../lib/types'
+import { CacheHint } from './CacheHint'
 import { CategoryIcon } from './CategoryChip'
 import { DeltaBadge } from './DeltaBadge'
 
@@ -169,9 +170,12 @@ export function CompareSection({ byId, currency, locale }: Props) {
 
   return (
     <section aria-labelledby={headingId} className="mt-6">
-      <h2 id={headingId} className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted">
-        Compare two months
-      </h2>
+      <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
+        <h2 id={headingId} className="shrink-0 text-xs font-semibold uppercase tracking-wider text-muted">
+          Compare two months
+        </h2>
+        <CacheHint show={!loading && !error && (inA.fromCache || inB.fromCache)} />
+      </div>
       <div className="grid grid-cols-2 gap-3">
         {picker('Month A', a, pickA)}
         {picker('Month B', b, pickB)}

@@ -10,6 +10,8 @@ export function useTransactions(from: IsoDate, to: IsoDate) {
   const [loading, setLoading] = useState(true)
   /** The visible rows include local writes the server has not acknowledged yet (offline, or still in flight). */
   const [pending, setPending] = useState(false)
+  /** The visible rows come from the local cache only: true until the server confirms the range, and again if it goes away. */
+  const [fromCache, setFromCache] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   /** The range the state above was last reset for: in the render where `from`/`to` change it is still the previous one. */
   const [resetFor, setResetFor] = useState({ from, to })
@@ -19,14 +21,16 @@ export function useTransactions(from: IsoDate, to: IsoDate) {
     setResetFor({ from, to })
     setTransactions([])
     setPending(false)
+    setFromCache(true)
     setError(null)
     setLoading(true)
     return subscribeTransactionsInRange(
       from,
       to,
-      (t, hasPendingWrites) => {
+      (t, hasPendingWrites, cached) => {
         setTransactions(t)
         setPending(hasPendingWrites)
+        setFromCache(cached)
         setLoading(false)
       },
       (e) => {
@@ -39,6 +43,6 @@ export function useTransactions(from: IsoDate, to: IsoDate) {
   }, [from, to])
 
   // Until that reset has run the state belongs to the previous range: not a single render may show it under the new one.
-  if (resetFor.from !== from || resetFor.to !== to) return { transactions: NO_ROWS, loading: true, pending: false, error: null }
-  return { transactions, loading, pending, error }
+  if (resetFor.from !== from || resetFor.to !== to) return { transactions: NO_ROWS, loading: true, pending: false, fromCache: true, error: null }
+  return { transactions, loading, pending, fromCache, error }
 }

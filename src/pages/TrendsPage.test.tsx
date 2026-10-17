@@ -59,13 +59,13 @@ vi.mock('../lib/firestore', () => ({ subscribeTransactionsInRange }))
 vi.mock('../hooks/useCategories', () => ({ useCategories }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 
-type OnData = (rows: Transaction[], hasPendingWrites: boolean) => void
+type OnData = (rows: Transaction[], hasPendingWrites: boolean, fromCache: boolean) => void
 /** What the range query returns: the fixture's rows dated within it. */
 const rowsIn = (from: IsoDate, to: IsoDate) => ROWS.filter((t) => t.date >= from && t.date <= to)
-/** Answers every subscription at once, except the `held` ranges, which load until the test delivers or fails them. */
+/** Answers every subscription at once (as confirmed by the server), except the `held` ranges, which load until the test delivers or fails them. */
 function answerRanges(...held: string[]) {
   subscribeTransactionsInRange.mockImplementation((from: IsoDate, to: IsoDate, onData: OnData) => {
-    if (!held.includes(`${from}..${to}`)) onData(rowsIn(from, to), false)
+    if (!held.includes(`${from}..${to}`)) onData(rowsIn(from, to), false, false)
     return vi.fn() // each subscription gets its own unsubscribe spy
   })
 }
@@ -74,7 +74,8 @@ function subscriptionTo(range: string) {
   if (!call) throw new Error(`Nothing subscribed to ${range}`)
   return call
 }
-const deliver = (range: string, rows: Transaction[]) => act(() => subscriptionTo(range)[2](rows, false))
+/** Answers the range's subscription; `fromCache` for a snapshot served from the local cache, not yet confirmed by the server. */
+const deliver = (range: string, rows: Transaction[], { fromCache = false } = {}) => act(() => subscriptionTo(range)[2](rows, false, fromCache))
 const fail = (range: string, e: Error) => act(() => subscriptionTo(range)[3](e))
 /** The ranges listened to right now (subscribed and not unsubscribed since), oldest first. */
 const listening = () =>
@@ -137,6 +138,17 @@ const compare = () => within(screen.getByRole('region', { name: 'Compare two mon
 const monthA = () => compare().getByRole('combobox', { name: 'Month A' })
 const monthB = () => compare().getByRole('combobox', { name: 'Month B' })
 const compareTable = () => compare().getByRole('table', { name: 'Change by category' })
+/** The row of the page's heading, where the cache hint of the range sits. */
+const titleRow = () => within(screen.getByRole('heading', { level: 1, name: 'Trends' }).parentElement as HTMLElement)
+const UPDATING = 'Updating…'
+const OFFLINE = "Offline — months you haven't opened may be missing"
+/** The connection as the browser reports it, announced the way the browser does when it changes. */
+function goOffline() {
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  act(() => {
+    window.dispatchEvent(new Event('offline'))
+  })
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -446,6 +458,63 @@ describe('TrendsPage', () => {
     deliver(SIX_MONTHS, [entry('o5', SALARY.id, '2026-10-01', 300000, 'income')])
     expect(screen.queryByText('No data for this range.')).not.toBeInTheDocument()
     expect(bar('Oct')).toHaveAccessibleName('Oct: €0.00, income €3,000.00')
+  })
+
+  describe('served from the cache only', () => {
+    it('says "Updating…" beside the heading until the server confirms the range, never while it loads', () => {
+      answerRanges(SIX_MONTHS)
+      renderPage()
+      expect(screen.getByText('Loading…')).toBeInTheDocument()
+      expect(screen.queryByText(UPDATING)).not.toBeInTheDocument()
+
+      deliver(SIX_MONTHS, rowsIn('2026-04-01', '2026-10-31'), { fromCache: true })
+      expect(titleRow().getByText(UPDATING)).toBeInTheDocument()
+      expect(barLabels()).toHaveLength(6) // the cached months are on screen meanwhile
+      expect(compare().queryByText(UPDATING)).not.toBeInTheDocument() // Compare's months came from the server
+
+      deliver(SIX_MONTHS, rowsIn('2026-04-01', '2026-10-31'))
+      expect(screen.queryByText(UPDATING)).not.toBeInTheDocument()
+    })
+
+    it('warns that unopened months may be missing while offline, and follows the connection as it drops', () => {
+      answerRanges(SIX_MONTHS)
+      renderPage()
+      deliver(SIX_MONTHS, rowsIn('2026-04-01', '2026-10-31'), { fromCache: true })
+      expect(titleRow().getByText(UPDATING)).toBeInTheDocument()
+      goOffline() // no new snapshot: the rows were already from the cache
+      expect(titleRow().getByText(OFFLINE)).toBeInTheDocument()
+      expect(screen.queryByText(UPDATING)).not.toBeInTheDocument()
+    })
+
+    it('says nothing over a failed range query', () => {
+      answerRanges(SIX_MONTHS)
+      renderPage()
+      deliver(SIX_MONTHS, rowsIn('2026-04-01', '2026-10-31'), { fromCache: true })
+      fail(SIX_MONTHS, new FirebaseError('unavailable', 'Failed to get documents from server.'))
+      expect(screen.getByText("You're offline and this data isn't cached yet")).toBeInTheDocument()
+      expect(screen.queryByText(UPDATING)).not.toBeInTheDocument()
+    })
+
+    it.each([
+      { month: 'A', held: SEP },
+      { month: 'B', held: OCT },
+    ])('gives Compare its own hint while month $month is served from the cache only', ({ held }) => {
+      answerRanges(held)
+      renderPage()
+      expect(compare().getByText('Loading…')).toBeInTheDocument()
+      expect(compare().queryByText(UPDATING)).not.toBeInTheDocument()
+      const [from, to] = held.split('..')
+
+      deliver(held, rowsIn(from, to), { fromCache: true })
+      expect(compare().getByText(UPDATING)).toBeInTheDocument()
+      expect(compareTable()).toBeInTheDocument()
+      expect(titleRow().queryByText(UPDATING)).not.toBeInTheDocument() // the chart's range came from the server
+      goOffline()
+      expect(compare().getByText(OFFLINE)).toBeInTheDocument()
+
+      deliver(held, rowsIn(from, to))
+      expect(compare().queryByText(OFFLINE)).not.toBeInTheDocument()
+    })
   })
 
   describe('comparing two months', () => {

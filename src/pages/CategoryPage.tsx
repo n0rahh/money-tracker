@@ -2,6 +2,7 @@ import { ChevronLeft } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BarChart } from '../components/BarChart'
+import { CacheHint } from '../components/CacheHint'
 import { CategoryIcon } from '../components/CategoryChip'
 import { TransactionList } from '../components/TransactionList'
 import { useAddSheet } from '../context/AddSheetContext'
@@ -22,7 +23,7 @@ export function CategoryPage() {
   const thisMonth = currentMonth()
   const months = useMemo(() => lastMonths(thisMonth, 12), [thisMonth])
   // Every category's rows for the twelve months, filtered here: a category filter in the query would need a second composite index.
-  const { transactions, loading, error } = useTransactions(monthRange(months[0]).from, monthRange(thisMonth).to)
+  const { transactions, loading, fromCache, error } = useTransactions(monthRange(months[0]).from, monthRange(thisMonth).to)
   // Home's month when the category was opened from there (`?month=`): selected first when it is one of the twelve, and where
   // the Back link of a cold deep link returns.
   const [searchParams] = useSearchParams()
@@ -100,6 +101,7 @@ export function CategoryPage() {
           {category.name}
           {category.archived ? <span className="font-normal text-muted"> (archived)</span> : null}
         </h1>
+        <CacheHint show={!settingsLoading && !loading && !error && fromCache} className="ml-auto max-w-[45%] shrink-0" />
       </header>
       {settingsLoading || loading ? (
         // No amounts until the currency is known, and no empty months before the rows arrive.

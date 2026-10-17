@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
@@ -43,8 +43,8 @@ vi.mock('../context/AddSheetContext', () => ({
 const withCategories = (categories: Category[], loading = false) =>
   useCategories.mockReturnValue({ categories, byId: new Map(categories.map((c) => [c.id, c])), loading, error: null })
 const withSettingsLoaded = () => useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null })
-const withRows = (transactions: Transaction[], state: { loading?: boolean; error?: Error } = {}) =>
-  useTransactions.mockReturnValue({ transactions, loading: state.loading ?? false, pending: false, error: state.error ?? null })
+const withRows = (transactions: Transaction[], state: { loading?: boolean; error?: Error; fromCache?: boolean } = {}) =>
+  useTransactions.mockReturnValue({ transactions, loading: state.loading ?? false, pending: false, fromCache: state.fromCache ?? false, error: state.error ?? null })
 
 /** One path is a cold deep link (the first history entry); a list is the history that led to its last path. */
 const tree = (path: string | string[]) => (
@@ -82,6 +82,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks() // the navigator.onLine spy
 })
 
 describe('CategoryPage', () => {
@@ -218,6 +219,47 @@ describe('CategoryPage', () => {
     expect(screen.getByText('Loading…')).toBeInTheDocument()
     expect(screen.queryByText(/^Nothing in/)).not.toBeInTheDocument()
     expect(screen.queryByText('Average per month')).not.toBeInTheDocument()
+  })
+
+  describe('served from the cache only', () => {
+    const header = () => within(screen.getByRole('heading', { level: 1 }).closest('header') as HTMLElement)
+
+    it('says "Updating…" in its header until the server confirms the months, and warns while offline', () => {
+      withRows(ROWS, { fromCache: true })
+      const { rerender } = page()
+      expect(header().getByText('Updating…')).toBeInTheDocument()
+      expect(chart().getAllByRole('button')).toHaveLength(12) // the cached months are on screen meanwhile
+
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+      act(() => {
+        window.dispatchEvent(new Event('offline'))
+      })
+      expect(header().getByText("Offline — months you haven't opened may be missing")).toBeInTheDocument()
+
+      withRows(ROWS) // confirmed by the server
+      rerender(tree('/category/c1'))
+      expect(screen.queryByText(/^Offline/)).not.toBeInTheDocument()
+      expect(screen.queryByText('Updating…')).not.toBeInTheDocument()
+    })
+
+    it('says nothing while the rows or the currency load, or over a failed query', () => {
+      withRows([], { loading: true, fromCache: true })
+      const { rerender } = page()
+      expect(screen.getByText('Loading…')).toBeInTheDocument()
+      expect(screen.queryByText('Updating…')).not.toBeInTheDocument()
+
+      withRows(ROWS, { fromCache: true })
+      useSettings.mockReturnValue({ settings: null, loading: true, fromCache: true, error: null })
+      rerender(tree('/category/c1'))
+      expect(screen.getByText('Loading…')).toBeInTheDocument()
+      expect(screen.queryByText('Updating…')).not.toBeInTheDocument()
+
+      withSettingsLoaded()
+      withRows([], { error: new Error('boom'), fromCache: true })
+      rerender(tree('/category/c1'))
+      expect(screen.getByText('boom')).toBeInTheDocument()
+      expect(screen.queryByText('Updating…')).not.toBeInTheDocument()
+    })
   })
 
   it('shows a failed query as its error, not as twelve empty months', () => {

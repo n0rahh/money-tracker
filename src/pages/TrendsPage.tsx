@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart } from '../components/BarChart'
+import { CacheHint } from '../components/CacheHint'
 import { CategoryChip } from '../components/CategoryChip'
 import { CompareSection } from '../components/CompareSection'
 import { DeltaBadge } from '../components/DeltaBadge'
@@ -51,7 +52,7 @@ export function TrendsPage() {
   const months = useMemo(() => rangeMonths(range), [range, thisMonth])
   const before = addMonths(months[0], -1)
   // The month before the range comes along: the first month's change is measured against it.
-  const { transactions, loading, error } = useTransactions(monthRange(before).from, monthRange(months[months.length - 1]).to)
+  const { transactions, loading, fromCache, error } = useTransactions(monthRange(before).from, monthRange(months[months.length - 1]).to)
   const filtered = useMemo(
     () => (selectedCategoryIds.size ? transactions.filter((t) => selectedCategoryIds.has(t.categoryId)) : transactions),
     [transactions, selectedCategoryIds],
@@ -95,9 +96,13 @@ export function TrendsPage() {
   const netOf = (r: MonthTotals) => (filtering ? NONE : signed(r.net))
   const loadingLine = <p className="mt-6 text-center text-sm text-muted">Loading…</p>
 
-  const header = (
+  // `cachedOnly`: the range's rows are on screen, but only from the local cache so far.
+  const header = (cachedOnly: boolean) => (
     <>
-      <h1 className="py-3 text-lg font-semibold">Trends</h1>
+      <div className="flex items-center justify-between gap-3 py-3">
+        <h1 className="text-lg font-semibold">Trends</h1>
+        <CacheHint show={cachedOnly} />
+      </div>
       <SegmentedControl ariaLabel="Range" value={range} options={RANGE_OPTIONS} onChange={changeRange} />
       {chips.length > 0 ? (
         <div role="group" aria-label="Filter by category" className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 md:mx-0 md:px-0">
@@ -113,7 +118,7 @@ export function TrendsPage() {
     // No amounts until the currency is known, and no "Uncategorized" comparison rows before the names arrive.
     return (
       <>
-        {header}
+        {header(false)}
         {loadingLine}
       </>
     )
@@ -123,7 +128,7 @@ export function TrendsPage() {
     // Without the categories every comparison row would read "Uncategorized": the error stands alone.
     return (
       <>
-        {header}
+        {header(false)}
         <p className="mt-4 text-center text-sm text-danger">{readErrorText(categoriesError)}</p>
       </>
     )
@@ -210,7 +215,7 @@ export function TrendsPage() {
 
   return (
     <>
-      {header}
+      {header(!loading && !error && fromCache)}
       {data}
       <CompareSection byId={byId} currency={currency} locale={locale} />
     </>
