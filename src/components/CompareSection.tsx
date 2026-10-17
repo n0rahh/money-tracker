@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTransactions } from '../hooks/useTransactions'
 import { addMonths, currentMonth, lastMonths, monthLabel, monthOf, monthRange, monthShortLabel } from '../lib/dates'
@@ -45,6 +45,15 @@ export function CompareSection({ byId, currency, locale }: Props) {
     [transactions, a, b],
   )
   const money = (minor: number) => formatMoney(minor, currency, locale)
+  // The category page shows the last twelve months, so it can open on B only when B is one of them.
+  const linkMonth = b >= lastMonths(thisMonth, 12)[0] ? b : null
+  // While a new pair of months loads, the section keeps the height it had settled at, so the page below
+  // does not collapse and the scroll position is not clamped.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const [settledHeight, setSettledHeight] = useState(0)
+  useLayoutEffect(() => {
+    if (!loading && bodyRef.current) setSettledHeight(bodyRef.current.offsetHeight)
+  })
 
   const picker = (label: string, value: IsoMonth, onChange: (month: IsoMonth) => void) => (
     <label className="flex min-w-0 flex-col gap-1">
@@ -90,9 +99,12 @@ export function CompareSection({ byId, currency, locale }: Props) {
               return (
                 <tr key={d.categoryId} className="border-t border-border">
                   <th scope="row" className={`${CELL} ${NAME} font-normal`}>
-                    {/* Opens on month B, the one compared; a category removed by hand has no page to open, so its row is not a link. */}
+                    {/* Opens on month B, the one compared, when the page can show it; a category removed by hand has no page, so no link. */}
                     {category ? (
-                      <Link to={`/category/${d.categoryId}?month=${b}`} className="flex min-h-11 min-w-0 items-center gap-2">
+                      <Link
+                        to={linkMonth ? `/category/${d.categoryId}?month=${linkMonth}` : `/category/${d.categoryId}`}
+                        className="flex min-h-11 min-w-0 items-center gap-2"
+                      >
                         <span className={ICON}>
                           <CategoryIcon category={category} size={28} />
                         </span>
@@ -134,7 +146,10 @@ export function CompareSection({ byId, currency, locale }: Props) {
         {picker('Month A', a, setA)}
         {picker('Month B', b, setB)}
       </div>
-      {body}
+      {/* flow-root: the children's top margins count inside the measured height. */}
+      <div ref={bodyRef} className="flow-root" style={loading ? { minHeight: settledHeight } : undefined}>
+        {body}
+      </div>
     </section>
   )
 }

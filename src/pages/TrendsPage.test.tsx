@@ -219,6 +219,16 @@ describe('TrendsPage', () => {
     expect(listening()).toEqual([THREE_MONTHS, SEP_OCT])
   })
 
+  it('opens on the range stored for the session and stores the next one', async () => {
+    const user = userEvent.setup()
+    sessionStorage.setItem('trends.range', '12M')
+    renderPage()
+    expect(radio('12M')).toBeChecked()
+    expect(barLabels()).toHaveLength(12)
+    await user.click(radio('3M'))
+    expect(sessionStorage.getItem('trends.range')).toBe('3M')
+  })
+
   it('opens on 6M when the remembered range is not one it knows', () => {
     sessionStorage.setItem('trends.range', '2Y')
     renderPage()
@@ -304,14 +314,31 @@ describe('TrendsPage', () => {
     expect(chipNames()).toEqual(['Coffee', 'Gym', 'Groceries', 'Holiday'])
     await user.click(chip('Holiday'))
     expect(bar('Jan')).toHaveAccessibleName('Jan: €900.00')
+    // The chips follow the range's entries, not the filter: Gym, archived too, stays.
+    expect(chipNames()).toEqual(['Coffee', 'Gym', 'Groceries', 'Holiday'])
 
     await user.click(radio('6M'))
     expect(chip('Holiday')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('No data for this range.')).toBeInTheDocument()
+    expect(screen.getByText('No data for the selected categories in this range.')).toBeInTheDocument()
+    expect(screen.queryByText('No data for this range.')).not.toBeInTheDocument()
 
     await user.click(chip('Holiday'))
     expect(chipNames()).toEqual(['Coffee', 'Gym', 'Groceries'])
     expect(barLabels()).toHaveLength(6)
+  })
+
+  it('keeps the archived chips of the settled range while the next range loads', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(radio('12M'))
+    expect(chipNames()).toEqual(['Coffee', 'Gym', 'Groceries', 'Holiday'])
+    answerRanges(SIX_MONTHS) // 6M stays loading until delivered
+    await user.click(radio('6M'))
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    expect(chipNames()).toEqual(['Coffee', 'Gym', 'Groceries', 'Holiday']) // nothing blinks out meanwhile
+
+    deliver(SIX_MONTHS, rowsIn('2026-04-01', '2026-10-31'))
+    expect(chipNames()).toEqual(['Coffee', 'Gym', 'Groceries']) // Holiday's only entry is in January
   })
 
   it("shows a tapped month's totals with a link that opens that month on Home", async () => {
@@ -368,6 +395,15 @@ describe('TrendsPage', () => {
     expect(screen.getByText('Loading…')).toBeInTheDocument()
     expect(screen.queryByText('Uncategorized')).not.toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('shows a failed categories query as its error, with no tables of "Uncategorized" rows', () => {
+    useCategories.mockReturnValue({ categories: [], byId: new Map(), loading: false, error: new Error('Missing or insufficient permissions.') })
+    renderPage()
+    expect(screen.getByText('Missing or insufficient permissions.')).toBeInTheDocument()
+    expect(screen.queryByText('Uncategorized')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Spending by month' })).not.toBeInTheDocument()
   })
 
   it('shows a failed range query as its error, not as empty months', () => {
@@ -445,6 +481,33 @@ describe('TrendsPage', () => {
       ])
       await user.click(compare().getByRole('link', { name: 'Gym' }))
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Category c2 month 2026-10$/)
+    })
+
+    it("leaves the month off the links when B is older than the category page's twelve months", async () => {
+      const user = userEvent.setup()
+      renderPage()
+      await user.selectOptions(monthB(), '2025-11') // the oldest of the twelve (Nov 2025 to Oct 2026): still linked
+      expect(compare().getByRole('link', { name: 'Gym' })).toHaveAttribute('href', '/category/c2?month=2025-11')
+      await user.selectOptions(monthB(), '2025-10') // one month older: the category page could not show it
+      expect(compare().getByRole('link', { name: 'Gym' })).toHaveAttribute('href', '/category/c2')
+    })
+
+    it('keeps its settled height while a new pair of months loads, so the page below does not jump', async () => {
+      const user = userEvent.setup()
+      renderPage()
+      const body = screen.getByRole('region', { name: 'Compare two months' }).lastElementChild as HTMLElement
+      // jsdom lays nothing out: from here on the settled table measures 420 px.
+      Object.defineProperty(body, 'offsetHeight', { configurable: true, get: () => 420 })
+      await user.selectOptions(monthA(), '2026-08') // answered at once, so that height is recorded once it settles
+      expect(body.style.minHeight).toBe('')
+
+      answerRanges('2026-07-01..2026-10-31')
+      await user.selectOptions(monthA(), '2026-07')
+      expect(compare().getByText('Loading…')).toBeInTheDocument()
+      expect(body.style.minHeight).toBe('420px')
+
+      deliver('2026-07-01..2026-10-31', rowsIn('2026-07-01', '2026-10-31'))
+      expect(body.style.minHeight).toBe('')
     })
 
     it('says "Nothing to compare yet." when neither month has spending', async () => {

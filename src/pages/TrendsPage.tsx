@@ -39,7 +39,7 @@ const NONE = '—'
 
 export function TrendsPage() {
   useVisibilityTick() // re-renders on each return to the foreground, so the range moves on with the calendar
-  const { categories, byId, loading: categoriesLoading } = useCategories()
+  const { categories, byId, loading: categoriesLoading, error: categoriesError } = useCategories()
   const { settings, loading: settingsLoading } = useSettings()
   const [range, setRange] = useState<RangeKey>(rememberedRange)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -57,7 +57,11 @@ export function TrendsPage() {
   )
   const rows = useMemo(() => monthlyTotals(filtered, months), [filtered, months])
   const prevRow = useMemo(() => monthlyTotals(filtered, [before])[0], [filtered, before])
-  const used = useMemo(() => new Set(transactions.map((t) => t.categoryId)), [transactions])
+  // The rows of the last range that finished loading (stored while rendering, as React documents for values from earlier
+  // renders), so archived chips do not blink out while the next range loads.
+  const [settledRows, setSettledRows] = useState(transactions)
+  if (!loading && settledRows !== transactions) setSettledRows(transactions)
+  const used = useMemo(() => new Set(settledRows.map((t) => t.categoryId)), [settledRows])
   // Archived categories only while the range holds their entries, or while chosen: a filter never applies out of sight.
   const chips = categories.filter((c) => c.kind === 'expense' && (!c.archived || used.has(c.id) || selectedCategoryIds.has(c.id)))
   // A tapped month stays selected only while the range shows it.
@@ -114,11 +118,22 @@ export function TrendsPage() {
     )
   }
 
+  if (categoriesError) {
+    // Without the categories every comparison row would read "Uncategorized": the error stands alone.
+    return (
+      <>
+        {header}
+        <p className="mt-4 text-center text-sm text-danger">{categoriesError.message}</p>
+      </>
+    )
+  }
+
+  const emptyText = filtering ? 'No data for the selected categories in this range.' : 'No data for this range.'
   let data
   if (loading) data = loadingLine
   // A failed query is not a range of empty months: its error stands alone.
   else if (error) data = <p className="mt-4 text-center text-sm text-danger">{error.message}</p>
-  else if (rows.every((r) => r.expense === 0 && r.income === 0)) data = <p className="mt-6 text-center text-sm text-muted">No data for this range.</p>
+  else if (rows.every((r) => r.expense === 0 && r.income === 0)) data = <p className="mt-6 text-center text-sm text-muted">{emptyText}</p>
   else {
     // Newest first; each month against the one before it, the first against the month before the range.
     const tableRows = rows.map((r, i) => ({ ...r, previous: (i === 0 ? prevRow : rows[i - 1]).expense })).reverse()
