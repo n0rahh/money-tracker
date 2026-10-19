@@ -3,6 +3,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  getDocsFromServer,
   limit,
   onSnapshot,
   orderBy,
@@ -18,7 +19,7 @@ import { DEFAULT_CATEGORIES } from './defaultCategories'
 import { db } from './firebase'
 import { mapBudget, mapCategory, mapRecurring, mapSettings, mapTransaction, transactionAt } from './mappers'
 import { instanceFor, instanceId } from './recurring'
-import type { Category, CategoryInput, IsoDate, IsoMonth, RecurringInput, RecurringTemplate, Settings, Transaction, TransactionInput } from './types'
+import type { Budget, Category, CategoryInput, IsoDate, IsoMonth, RecurringInput, RecurringTemplate, Settings, Transaction, TransactionInput } from './types'
 
 const categoriesCol = () => collection(db, 'categories')
 const transactionsCol = () => collection(db, 'transactions')
@@ -34,6 +35,16 @@ export function subscribeCategories(onData: (categories: Category[]) => void, on
     (snap) => onData(snap.docs.map((d) => mapCategory(d.id, d.data()))),
     (e) => onError?.(e),
   )
+}
+
+/**
+ * Every category, archived ones included, read once from the server for an export. Exports read from the server, never the
+ * cache: offline, the cache holds only what this device has opened, and a backup that silently left the rest out would be
+ * worse than none, so offline they fail with `unavailable` instead.
+ */
+export async function getAllCategories(): Promise<Category[]> {
+  const snap = await getDocsFromServer(query(categoriesCol(), orderBy('order')))
+  return snap.docs.map((d) => mapCategory(d.id, d.data()))
 }
 
 export function createCategory(input: CategoryInput): { id: string; done: Promise<void> } {
@@ -90,6 +101,12 @@ export function subscribeTransactionsInRange(
   )
 }
 
+/** Every transaction, newest first, read once from the server (as getAllCategories): an export, one tap, within spec §4's read budget. */
+export async function getAllTransactions(): Promise<Transaction[]> {
+  const snap = await getDocsFromServer(query(transactionsCol(), orderBy('date', 'desc'), orderBy('at', 'desc')))
+  return snap.docs.map((d) => mapTransaction(d.id, d.data()))
+}
+
 function transactionData(input: TransactionInput) {
   return {
     kind: input.kind,
@@ -139,6 +156,46 @@ export function restoreTransaction(tx: Transaction): Promise<void> {
   })
 }
 
+/** Writes per batch in an import: under Firestore's 500 per batch, with room to spare. */
+export const IMPORT_BATCH_SIZE = 400
+
+/**
+ * Writes imported rows under their deterministic ids (`imp_…`), as plain sets in batches of IMPORT_BATCH_SIZE, so an
+ * import of the same rows again overwrites them instead of adding them twice. Every batch is queued at once, so all of
+ * them reach the local cache (and the screen) at once and sync on their own even offline; `onProgress` gets the number
+ * of rows written each time a batch is confirmed. Resolves with that number once every batch is; when one fails, rejects
+ * with its error once the others have settled. The one write the UI waits for (spec §11): an import shows its progress.
+ */
+export async function importTransactions(
+  rows: { id: string; input: TransactionInput & { source: 'import' } }[],
+  onProgress?: (done: number) => void,
+): Promise<number> {
+  let done = 0
+  const commits: Promise<void>[] = []
+  for (let start = 0; start < rows.length; start += IMPORT_BATCH_SIZE) {
+    const chunk = rows.slice(start, start + IMPORT_BATCH_SIZE)
+    const batch = writeBatch(db)
+    for (const { id, input } of chunk) {
+      batch.set(doc(db, 'transactions', id), {
+        // Never a template's entry, whatever the input carries: an imported row has no recurringId.
+        ...transactionData({ ...input, recurringId: undefined }),
+        source: 'import',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    }
+    commits.push(
+      batch.commit().then(() => {
+        done += chunk.length
+        onProgress?.(done)
+      }),
+    )
+  }
+  const failed = (await Promise.allSettled(commits)).find((r): r is PromiseRejectedResult => r.status === 'rejected')
+  if (failed) throw failed.reason
+  return done
+}
+
 // ---- budgets ----
 
 /**
@@ -160,6 +217,12 @@ export function subscribeBudgets(onData: (budgets: Map<string, number>) => void,
   )
 }
 
+/** Every budget, read once from the server for the JSON backup (as getAllCategories); like subscribeBudgets, only usable limits. */
+export async function getAllBudgets(): Promise<Budget[]> {
+  const snap = await getDocsFromServer(budgetsCol())
+  return snap.docs.map((d) => mapBudget(d.id, d.data())).filter((b) => b.monthly > 0)
+}
+
 /** Sets the monthly limit of a category (whole minor units above 0), or removes it when `monthly` is null. */
 export function setBudget(categoryId: string, monthly: number | null): Promise<void> {
   const ref = doc(db, 'budgets', categoryId)
@@ -168,7 +231,9 @@ export function setBudget(categoryId: string, monthly: number | null): Promise<v
 
 // ---- recurring ----
 
-/** Sorted here, by start month and then day, rather than by the query: ordering by two fields would need a new index. */
+/** By start month and then day, sorted here rather than by the query: ordering by two fields would need a new index. */
+const byStart = (a: RecurringTemplate, b: RecurringTemplate) => a.startMonth.localeCompare(b.startMonth) || a.dayOfMonth - b.dayOfMonth
+
 export function subscribeRecurring(
   onData: (templates: RecurringTemplate[], fromCache: boolean) => void,
   onError?: (e: Error) => void,
@@ -180,13 +245,16 @@ export function subscribeRecurring(
     { includeMetadataChanges: true },
     (snap) => {
       const templates = snap.docs.map((d) => mapRecurring(d.id, d.data()))
-      onData(
-        templates.sort((a, b) => a.startMonth.localeCompare(b.startMonth) || a.dayOfMonth - b.dayOfMonth),
-        snap.metadata.fromCache,
-      )
+      onData(templates.sort(byStart), snap.metadata.fromCache)
     },
     (e) => onError?.(e),
   )
+}
+
+/** Every recurring template, read once from the server for the JSON backup (as getAllCategories), in the same order as subscribeRecurring. */
+export async function getAllRecurring(): Promise<RecurringTemplate[]> {
+  const snap = await getDocsFromServer(recurringCol())
+  return snap.docs.map((d) => mapRecurring(d.id, d.data())).sort(byStart)
 }
 
 export function createRecurring(input: RecurringInput): { id: string; done: Promise<void> } {
