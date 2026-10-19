@@ -1,5 +1,5 @@
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing'
-import { deleteDoc, doc, getDoc, setDoc, setLogLevel, Timestamp, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, setLogLevel, Timestamp, updateDoc } from 'firebase/firestore'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
 
@@ -193,10 +193,12 @@ describe('other collections', () => {
 })
 
 describe('budgets', () => {
-  it('owner can set, read, change and delete a budget', async () => {
-    const ref = doc(owner(), 'budgets/c1')
+  it('owner can set, read, list, change and delete a budget', async () => {
+    const db = owner()
+    const ref = doc(db, 'budgets/c1')
     await assertSucceeds(setDoc(ref, validBudget()))
     await assertSucceeds(getDoc(ref))
+    await assertSucceeds(getDocs(collection(db, 'budgets'))) // the app reads its budgets with a collection query
     await assertSucceeds(updateDoc(ref, { monthly: 75000 }))
     await assertSucceeds(deleteDoc(ref))
   })
@@ -213,31 +215,15 @@ describe('budgets', () => {
     await assertSucceeds(setDoc(doc(db, 'budgets/ok2'), { monthly: 99999999999 }))
     await assertFails(updateDoc(doc(db, 'budgets/ok1'), { monthly: 0 }))
   })
-
-  it('is denied to another verified account, to the owner email without email_verified, and to anonymous', async () => {
-    // An existing document, so a denial is the rules' doing, not a missing document.
-    await assertSucceeds(setDoc(doc(owner(), 'budgets/c1'), validBudget()))
-    await assertFails(getDoc(doc(stranger(), 'budgets/c1')))
-    await assertFails(setDoc(doc(stranger(), 'budgets/c2'), validBudget()))
-    await assertFails(updateDoc(doc(stranger(), 'budgets/c1'), { monthly: 1 }))
-    await assertFails(deleteDoc(doc(stranger(), 'budgets/c1')))
-    await assertFails(getDoc(doc(unverifiedOwner(), 'budgets/c1')))
-    await assertFails(setDoc(doc(unverifiedOwner(), 'budgets/c2'), validBudget()))
-    await assertFails(updateDoc(doc(unverifiedOwner(), 'budgets/c1'), { monthly: 1 }))
-    await assertFails(deleteDoc(doc(unverifiedOwner(), 'budgets/c1')))
-    await assertFails(getDoc(doc(anon(), 'budgets/c1')))
-    await assertFails(setDoc(doc(anon(), 'budgets/c2'), validBudget()))
-    await assertFails(updateDoc(doc(anon(), 'budgets/c1'), { monthly: 1 }))
-    await assertFails(deleteDoc(doc(anon(), 'budgets/c1')))
-  })
 })
 
 describe('recurring templates', () => {
-  it('owner can create, read, update and delete a valid template', async () => {
+  it('owner can create, read, list, update and delete a valid template', async () => {
     const db = owner()
     const ref = doc(db, 'recurring/r1')
     await assertSucceeds(setDoc(ref, validRecurring()))
     await assertSucceeds(getDoc(ref))
+    await assertSucceeds(getDocs(collection(db, 'recurring'))) // the app reads its templates with a collection query
     await assertSucceeds(updateDoc(ref, { lastAppliedMonth: '2026-10' })) // what the launch-time materialiser writes
     await assertSucceeds(updateDoc(ref, { endMonth: '2027-03' })) // what "Stop" writes
     await assertSucceeds(deleteDoc(ref))
@@ -294,21 +280,55 @@ describe('recurring templates', () => {
     await assertSucceeds(setDoc(doc(db, 'recurring/ok2'), { ...validRecurring(), endMonth: '2027-03', lastAppliedMonth: '2026-10' }))
   })
 
-  it('is denied to another verified account, to the owner email without email_verified, and to anonymous', async () => {
-    // An existing document, so a denial is the rules' doing, not a missing document.
-    await assertSucceeds(setDoc(doc(owner(), 'recurring/r1'), validRecurring()))
-    await assertFails(getDoc(doc(stranger(), 'recurring/r1')))
-    await assertFails(setDoc(doc(stranger(), 'recurring/r2'), validRecurring()))
-    await assertFails(updateDoc(doc(stranger(), 'recurring/r1'), { note: 'x' }))
-    await assertFails(deleteDoc(doc(stranger(), 'recurring/r1')))
-    await assertFails(getDoc(doc(unverifiedOwner(), 'recurring/r1')))
-    await assertFails(setDoc(doc(unverifiedOwner(), 'recurring/r2'), validRecurring()))
-    await assertFails(updateDoc(doc(unverifiedOwner(), 'recurring/r1'), { note: 'x' }))
-    await assertFails(deleteDoc(doc(unverifiedOwner(), 'recurring/r1')))
-    await assertFails(getDoc(doc(anon(), 'recurring/r1')))
-    await assertFails(setDoc(doc(anon(), 'recurring/r2'), validRecurring()))
-    await assertFails(updateDoc(doc(anon(), 'recurring/r1'), { note: 'x' }))
-    await assertFails(deleteDoc(doc(anon(), 'recurring/r1')))
+  // Too few or too many digits, or another separator: all three month fields share one format.
+  it.each(['26-10', '20261-10', '2026/10'])('rejects "%s" as startMonth, endMonth and lastAppliedMonth', async (month) => {
+    const db = owner()
+    await assertFails(setDoc(doc(db, 'recurring/bad1'), { ...validRecurring(), startMonth: month }))
+    await assertFails(setDoc(doc(db, 'recurring/bad2'), { ...validRecurring(), endMonth: month }))
+    await assertFails(setDoc(doc(db, 'recurring/bad3'), { ...validRecurring(), lastAppliedMonth: month }))
+  })
+
+  it('bounds the template id to 64 characters, the length a recurringId can have', async () => {
+    const db = owner()
+    const longest = `recurring/${'x'.repeat(64)}`
+    const tooLong = `recurring/${'x'.repeat(65)}`
+    await assertSucceeds(setDoc(doc(db, longest), validRecurring()))
+    await assertSucceeds(updateDoc(doc(db, longest), { endMonth: '2027-03' }))
+    await assertFails(setDoc(doc(db, tooLong), validRecurring()))
+    // One that got in some other way cannot be edited through the client, but it can still be removed.
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), tooLong), validRecurring())
+    })
+    await assertFails(updateDoc(doc(db, tooLong), { endMonth: '2027-03' }))
+    await assertSucceeds(deleteDoc(doc(db, tooLong)))
+  })
+})
+
+describe.each([
+  { who: 'another verified account', db: stranger },
+  { who: 'the owner email without email_verified', db: unverifiedOwner },
+  { who: 'anonymous', db: anon },
+])('$who on budgets and recurring templates', ({ db }) => {
+  beforeEach(async () => {
+    // Existing documents, so a denial is the rules' doing, not a missing document.
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'budgets/c1'), validBudget())
+      await setDoc(doc(ctx.firestore(), 'recurring/r1'), validRecurring())
+    })
+  })
+  it('is denied reading, listing and writing budgets', async () => {
+    await assertFails(getDoc(doc(db(), 'budgets/c1')))
+    await assertFails(getDocs(collection(db(), 'budgets')))
+    await assertFails(setDoc(doc(db(), 'budgets/c2'), validBudget()))
+    await assertFails(updateDoc(doc(db(), 'budgets/c1'), { monthly: 1 }))
+    await assertFails(deleteDoc(doc(db(), 'budgets/c1')))
+  })
+  it('is denied reading, listing and writing recurring templates', async () => {
+    await assertFails(getDoc(doc(db(), 'recurring/r1')))
+    await assertFails(getDocs(collection(db(), 'recurring')))
+    await assertFails(setDoc(doc(db(), 'recurring/r2'), validRecurring()))
+    await assertFails(updateDoc(doc(db(), 'recurring/r1'), { note: 'x' }))
+    await assertFails(deleteDoc(doc(db(), 'recurring/r1')))
   })
 })
 

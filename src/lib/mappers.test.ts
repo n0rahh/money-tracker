@@ -56,6 +56,12 @@ describe('mapTransaction', () => {
   ])('leaves recurringId out altogether when it is $name', ({ data }) => {
     expect(mapTransaction('t8', { amount: 5, date: '2026-10-01', ...data })).not.toHaveProperty('recurringId')
   })
+  it('rounds a fraction below a half down', () => {
+    expect(mapTransaction('t9', { amount: 12.4, date: '2026-10-01' }).amount).toBe(12)
+  })
+  it.each([NaN, Infinity, -Infinity])('defaults an amount of %s to 0', (amount) => {
+    expect(mapTransaction('t10', { amount, date: '2026-10-01' }).amount).toBe(0)
+  })
 })
 
 describe('mapBudget', () => {
@@ -64,11 +70,15 @@ describe('mapBudget', () => {
   })
   it('rounds a fractional limit to whole minor units', () => {
     expect(mapBudget('c1', { monthly: 12.6 }).monthly).toBe(13)
+    expect(mapBudget('c1', { monthly: 12.4 }).monthly).toBe(12)
   })
   it('turns a missing or non-numeric limit into 0, which means "no usable limit"', () => {
     expect(mapBudget('c1', {}).monthly).toBe(0)
     expect(mapBudget('c1', { monthly: '500' }).monthly).toBe(0)
     expect(mapBudget('c1', { monthly: null }).monthly).toBe(0)
+  })
+  it.each([NaN, Infinity, -Infinity])('turns a limit of %s into 0 as well', (monthly) => {
+    expect(mapBudget('c1', { monthly }).monthly).toBe(0)
   })
 })
 
@@ -133,7 +143,11 @@ describe('mapRecurring', () => {
   })
   it('rounds a fractional amount and defaults a non-numeric one to 0', () => {
     expect(mapRecurring('r8', { amount: 12.6 }).amount).toBe(13)
+    expect(mapRecurring('r8b', { amount: 12.4 }).amount).toBe(12)
     expect(mapRecurring('r9', { amount: '12' }).amount).toBe(0)
+  })
+  it.each([NaN, Infinity, -Infinity])('defaults an amount of %s to 0', (amount) => {
+    expect(mapRecurring('r11', { amount }).amount).toBe(0)
   })
   it('drops createdAt and updatedAt that are not Timestamps', () => {
     const t = mapRecurring('r10', { createdAt: '2026-10-01', updatedAt: 5 })

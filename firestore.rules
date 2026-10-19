@@ -61,7 +61,8 @@ service cloud.firestore {
     }
     match /recurring/{id} {
       allow read, delete: if isOwner();
-      allow create, update: if isOwner() && validRecurring(request.resource.data);
+      // The id becomes the recurringId of the entries a template creates, which validTransaction caps at 64 characters.
+      allow create, update: if isOwner() && id.size() <= 64 && validRecurring(request.resource.data);
     }
     match /settings/{id} {
       allow read, write: if isOwner();

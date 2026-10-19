@@ -8,7 +8,7 @@ type Data = Record<string, unknown>
 
 const asKind = (v: unknown): Kind => (v === 'income' ? 'income' : 'expense')
 const asTimestamp = (v: unknown): Timestamp | undefined => (v instanceof Timestamp ? v : undefined)
-const asMinorUnits = (v: unknown): number => (typeof v === 'number' ? Math.round(v) : 0)
+const asMinorUnits = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0)
 const asMonth = (v: unknown): IsoMonth | null => (typeof v === 'string' && isIsoMonth(v) ? v : null)
 const asDayOfMonth = (v: unknown): number => (typeof v === 'number' && !Number.isNaN(v) ? Math.min(31, Math.max(1, Math.round(v))) : 1)
 
@@ -44,7 +44,7 @@ export function mapTransaction(id: string, data: Data): Transaction {
   }
 }
 
-/** A limit that is missing or not a number comes out as 0, which no budget can be: callers treat it as "no budget". */
+/** A limit that is missing or not a finite number comes out as 0, which no budget can be: callers treat it as "no budget". */
 export function mapBudget(categoryId: string, data: Data): Budget {
   return { categoryId, monthly: asMinorUnits(data.monthly) }
 }
