@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FirebaseError } from 'firebase/app'
+import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
@@ -10,20 +11,27 @@ import { RecurringPage } from './RecurringPage'
 const HOUSING: Category = { id: 'rent', name: 'Housing', icon: 'House', color: 'orange', kind: 'expense', order: 0, archived: false }
 const SALARY: Category = { id: 'salary', name: 'Salary', icon: 'Banknote', color: 'emerald', kind: 'income', order: 0, archived: false }
 const SPORT: Category = { id: 'sport', name: 'Sport', icon: 'Dumbbell', color: 'sky', kind: 'expense', order: 1, archived: false }
-const CATEGORIES = [HOUSING, SALARY, SPORT]
+/** Archived after its template was made: still the template's label, as for old entries (spec §6). */
+const STREAMING: Category = { id: 'streaming', name: 'Streaming', icon: 'Tv', color: 'violet', kind: 'expense', order: 2, archived: true }
+const CATEGORIES = [HOUSING, SALARY, SPORT, STREAMING]
 
 // The clock (Date only) reads Monday 19 Oct 2026 below.
 /** Runs with no end. */
 const RENT: RecurringTemplate = {
   id: 'r1', kind: 'expense', amount: 120_000, categoryId: 'rent', note: 'Flat', dayOfMonth: 1, startMonth: '2026-01', endMonth: null, lastAppliedMonth: '2026-10',
 }
-/** Ends in December, so it can still be stopped sooner. */
+/** Ends in December, so it can still be stopped sooner. Read with its timestamps, which Undo must hand back unchanged. */
 const PAY: RecurringTemplate = {
   id: 'r2', kind: 'income', amount: 500_000, categoryId: 'salary', note: '', dayOfMonth: 25, startMonth: '2026-03', endMonth: '2026-12', lastAppliedMonth: '2026-10',
+  createdAt: new Timestamp(1_772_000_000, 123_456_000), updatedAt: new Timestamp(1_791_000_000, 654_321_000),
 }
 /** Ended in August. */
 const GYM: RecurringTemplate = {
   id: 'r3', kind: 'expense', amount: 4_900, categoryId: 'sport', note: 'Gym', dayOfMonth: 31, startMonth: '2025-11', endMonth: '2026-08', lastAppliedMonth: '2026-08',
+}
+/** On a category archived since. */
+const NETFLIX: RecurringTemplate = {
+  id: 'r5', kind: 'expense', amount: 1_599, categoryId: 'streaming', note: 'Netflix', dayOfMonth: 12, startMonth: '2026-04', endMonth: null, lastAppliedMonth: '2026-10',
 }
 /** Edited by hand in the console down to no amount: the materialiser never writes it. */
 const BROKEN: RecurringTemplate = {
@@ -106,21 +114,31 @@ describe('RecurringPage', () => {
     expect(within(rowOf('Gym')).getByText('Every month on day 31 · since November 2025 · until August 2026')).toBeInTheDocument()
   })
 
-  it('offers Stop while a template runs past this month, and Delete on every template', () => {
+  it('offers Stop while a template runs past this month, and Delete template on every template', () => {
     page()
     for (const text of ['Flat', 'Salary']) {
-      expect(within(rowOf(text)).getByRole('button', { name: 'Stop' })).toBeInTheDocument()
-      expect(within(rowOf(text)).getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+      expect(within(rowOf(text)).getByRole('button', { name: /^Stop / })).toHaveTextContent(/^Stop$/)
+      expect(within(rowOf(text)).getByRole('button', { name: /^Delete template / })).toHaveTextContent(/^Delete template$/)
     }
     const gym = rowOf('Gym') // ended in August
-    expect(within(gym).queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
-    expect(within(gym).getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+    expect(within(gym).queryByRole('button', { name: /^Stop/ })).not.toBeInTheDocument()
+    expect(within(gym).getByRole('button', { name: /^Delete template / })).toBeInTheDocument()
+  })
+
+  it("names each row's buttons after its template, so a list of them reads apart", () => {
+    page()
+    // Category and note; the category alone when there is no note.
+    expect(within(rowOf('Flat')).getByRole('button', { name: 'Stop Housing (Flat)' })).toBeInTheDocument()
+    expect(within(rowOf('Flat')).getByRole('button', { name: 'Delete template Housing (Flat)' })).toBeInTheDocument()
+    expect(within(rowOf('Salary')).getByRole('button', { name: 'Stop Salary' })).toBeInTheDocument()
+    expect(within(rowOf('Gym')).getByRole('button', { name: 'Delete template Sport (Gym)' })).toBeInTheDocument()
+    expect(new Set(screen.getAllByRole('button', { name: /^Delete template / }).map((b) => b.getAttribute('aria-label'))).size).toBe(3)
   })
 
   it('Stop ends a template with this month, without waiting for the server; its entries stay', async () => {
     const user = userEvent.setup()
     const { rerender } = page()
-    await user.click(within(rowOf('Flat')).getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getByRole('button', { name: 'Stop Housing (Flat)' }))
     expect(updateRecurring).toHaveBeenCalledTimes(1)
     expect(updateRecurring).toHaveBeenCalledWith('r1', { endMonth: '2026-10' })
     expect(deleteRecurring).not.toHaveBeenCalled()
@@ -130,14 +148,14 @@ describe('RecurringPage', () => {
     rerender(tree('/recurring'))
     const rent = rowOf('Flat')
     expect(within(rent).getByText('Every month on day 1 · since January 2026 · until October 2026')).toBeInTheDocument()
-    expect(within(rent).queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
+    expect(within(rent).queryByRole('button', { name: /^Stop/ })).not.toBeInTheDocument()
   })
 
   it('Delete removes the template at once, without asking or waiting, and offers Undo', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const user = userEvent.setup()
     page()
-    await user.click(within(rowOf('Flat')).getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Delete template Housing (Flat)' }))
     expect(confirm).not.toHaveBeenCalled()
     expect(deleteRecurring).toHaveBeenCalledTimes(1)
     expect(deleteRecurring).toHaveBeenCalledWith('r1')
@@ -150,22 +168,26 @@ describe('RecurringPage', () => {
   it('Undo writes the template back exactly as it was, once', async () => {
     const user = userEvent.setup()
     page()
-    await user.click(within(rowOf('Salary')).getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Delete template Salary' }))
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(restoreRecurring).toHaveBeenCalledTimes(1)
     expect(restoreRecurring).toHaveBeenCalledWith(PAY)
+    // The template as read, its stored timestamps included: the restore keeps createdAt from it.
+    const [restored] = restoreRecurring.mock.calls[0] as [RecurringTemplate]
+    expect(restored.createdAt).toBe(PAY.createdAt)
+    expect(restored.lastAppliedMonth).toBe('2026-10')
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
     expect(deleteRecurring).toHaveBeenCalledTimes(1)
   })
 
   it.each([
     { action: 'Stop', fail: () => updateRecurring.mockImplementation(() => Promise.reject(denied())), shown: `Could not stop: ${DENIED_TEXT}` },
-    { action: 'Delete', fail: () => deleteRecurring.mockImplementation(() => Promise.reject(denied())), shown: `Could not delete: ${DENIED_TEXT}` },
+    { action: 'Delete template', fail: () => deleteRecurring.mockImplementation(() => Promise.reject(denied())), shown: `Could not delete: ${DENIED_TEXT}` },
   ])('explains a failed $action in a toast', async ({ action, fail, shown }) => {
     fail()
     const user = userEvent.setup()
     page()
-    await user.click(within(rowOf('Flat')).getByRole('button', { name: action }))
+    await user.click(screen.getByRole('button', { name: `${action} Housing (Flat)` }))
     expect(await screen.findByText(shown)).toBeInTheDocument()
   })
 
@@ -173,7 +195,7 @@ describe('RecurringPage', () => {
     restoreRecurring.mockImplementation(() => Promise.reject(denied()))
     const user = userEvent.setup()
     page()
-    await user.click(within(rowOf('Flat')).getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Delete template Housing (Flat)' }))
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(await screen.findByText(`Could not undo: ${DENIED_TEXT}`)).toBeInTheDocument()
   })
@@ -185,8 +207,8 @@ describe('RecurringPage', () => {
     const broken = rowOf('typo')
     expect(within(broken).getByText('Invalid template')).toBeInTheDocument()
     expect(within(broken).queryByText(/^Every month/)).not.toBeInTheDocument()
-    expect(within(broken).queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument()
-    await user.click(within(broken).getByRole('button', { name: 'Delete' }))
+    expect(within(broken).queryByRole('button', { name: /^Stop/ })).not.toBeInTheDocument()
+    await user.click(within(broken).getByRole('button', { name: 'Delete template Housing (typo)' }))
     expect(deleteRecurring).toHaveBeenCalledWith('r4')
     expect(screen.getByRole('status')).toHaveTextContent('Template deleted')
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
@@ -196,6 +218,16 @@ describe('RecurringPage', () => {
     withTemplates([{ ...RENT, categoryId: 'removed-in-console' }])
     page()
     expect(within(rowOf('Flat')).getByText('Uncategorized')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop Uncategorized (Flat)' })).toBeInTheDocument()
+  })
+
+  it('still names a template after its category once that is archived', () => {
+    withTemplates([RENT, NETFLIX])
+    page()
+    const netflix = rowOf('Netflix')
+    expect(within(netflix).getByText('Streaming')).toBeInTheDocument()
+    expect(within(netflix).queryByText('Uncategorized')).not.toBeInTheDocument()
+    expect(within(netflix).getByRole('button', { name: 'Delete template Streaming (Netflix)' })).toBeInTheDocument()
   })
 
   it('says how to make one when nothing repeats yet', () => {

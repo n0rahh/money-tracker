@@ -257,10 +257,25 @@ export async function getAllRecurring(): Promise<RecurringTemplate[]> {
   return snap.docs.map((d) => mapRecurring(d.id, d.data())).sort(byStart)
 }
 
-export function createRecurring(input: RecurringInput): { id: string; done: Promise<void> } {
+/** One entry of a template: written with a plain set under its month's deterministic id, so a repeat overwrites it. */
+function instanceData(t: RecurringTemplate, month: IsoMonth) {
+  // instanceFor sets recurringId to the template's id, which transactionData keeps.
+  return { ...transactionData(instanceFor(t, month)), source: 'app', createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
+}
+
+/**
+ * A new template and its entry for `startMonth` in ONE batch, with lastAppliedMonth already at startMonth. As two writes,
+ * a snapshot between them would show the template with lastAppliedMonth null, and this device's materialiser (or another
+ * device's) would write that month again; in one batch no snapshot ever shows the template without its first entry.
+ * All or nothing: the rules accept or refuse both together.
+ */
+export function createRecurringWithFirstInstance(input: RecurringInput): { id: string; done: Promise<void> } {
   const ref = doc(recurringCol())
-  const done = setDoc(ref, { ...input, lastAppliedMonth: null, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
-  return { id: ref.id, done }
+  const template: RecurringTemplate = { ...input, id: ref.id, lastAppliedMonth: input.startMonth }
+  const batch = writeBatch(db)
+  batch.set(ref, { ...input, lastAppliedMonth: input.startMonth, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
+  batch.set(doc(db, 'transactions', instanceId(ref.id, input.startMonth)), instanceData(template, input.startMonth))
+  return { id: ref.id, done: batch.commit() }
 }
 
 export function updateRecurring(id: string, patch: Partial<RecurringInput>): Promise<void> {
@@ -303,15 +318,7 @@ export function materialiseRecurring(t: RecurringTemplate, months: IsoMonth[]): 
   const last = months.at(-1)
   if (last === undefined) return Promise.resolve()
   const batch = writeBatch(db)
-  for (const month of months) {
-    // instanceFor sets recurringId to the template's id, which transactionData keeps.
-    batch.set(doc(db, 'transactions', instanceId(t.id, month)), {
-      ...transactionData(instanceFor(t, month)),
-      source: 'app',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
-  }
+  for (const month of months) batch.set(doc(db, 'transactions', instanceId(t.id, month)), instanceData(t, month))
   batch.update(doc(db, 'recurring', t.id), { lastAppliedMonth: last, updatedAt: serverTimestamp() })
   return batch.commit()
 }

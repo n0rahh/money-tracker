@@ -49,19 +49,18 @@ const RECENT = [
 ]
 
 const {
-  createTransaction, updateTransaction, deleteTransaction, restoreTransaction, createRecurring, materialiseRecurring, useCategories, useSettings, useTransactions,
+  createTransaction, updateTransaction, deleteTransaction, restoreTransaction, createRecurringWithFirstInstance, useCategories, useSettings, useTransactions,
 } = vi.hoisted(() => ({
   createTransaction: vi.fn(),
   updateTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
   restoreTransaction: vi.fn(),
-  createRecurring: vi.fn(),
-  materialiseRecurring: vi.fn(),
+  createRecurringWithFirstInstance: vi.fn(),
   useCategories: vi.fn(),
   useSettings: vi.fn(),
   useTransactions: vi.fn(),
 }))
-vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction, restoreTransaction, createRecurring, materialiseRecurring }))
+vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction, restoreTransaction, createRecurringWithFirstInstance }))
 vi.mock('../hooks/useCategories', () => ({ useCategories }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useTransactions', () => ({ useTransactions }))
@@ -96,8 +95,7 @@ beforeEach(() => {
   updateTransaction.mockReturnValue(new Promise<void>(() => {}))
   deleteTransaction.mockReturnValue(new Promise<void>(() => {}))
   restoreTransaction.mockReturnValue(new Promise<void>(() => {}))
-  createRecurring.mockReturnValue({ id: 'r-new', done: new Promise<void>(() => {}) })
-  materialiseRecurring.mockReturnValue(new Promise<void>(() => {}))
+  createRecurringWithFirstInstance.mockReturnValue({ id: 'r-new', done: new Promise<void>(() => {}) })
 })
 
 afterEach(() => {
@@ -403,7 +401,7 @@ describe('AddTransactionSheet', () => {
       expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
     })
 
-    it("saves a template from the entry and its first entry as the template's own for that month, without waiting", async () => {
+    it("saves a template from the entry with its first entry, the template's own for that month, in one write, without waiting", async () => {
       const user = userEvent.setup()
       setup()
       await user.click(screen.getByText('open-add'))
@@ -414,15 +412,12 @@ describe('AddTransactionSheet', () => {
       await user.click(screen.getByRole('switch', { name: 'Repeat every month on day 17' }))
       await user.click(screen.getByRole('button', { name: 'Add €5,000.00 · Salary' }))
 
-      const input = { kind: 'income', amount: 500_000, categoryId: 'c2', note: 'pay', dayOfMonth: 17, startMonth: '2026-10', endMonth: null }
-      expect(createRecurring).toHaveBeenCalledTimes(1)
-      expect(createRecurring).toHaveBeenCalledWith(input)
-      // Built from the input and the new id at once: the snapshot is not waited for.
-      expect(materialiseRecurring).toHaveBeenCalledTimes(1)
-      expect(materialiseRecurring).toHaveBeenCalledWith({ ...input, id: 'r-new', lastAppliedMonth: null }, ['2026-10'])
-      expect(createRecurring.mock.invocationCallOrder[0]).toBeLessThan(materialiseRecurring.mock.invocationCallOrder[0])
+      expect(createRecurringWithFirstInstance).toHaveBeenCalledTimes(1)
+      expect(createRecurringWithFirstInstance).toHaveBeenCalledWith({
+        kind: 'income', amount: 500_000, categoryId: 'c2', note: 'pay', dayOfMonth: 17, startMonth: '2026-10', endMonth: null,
+      })
       expect(createTransaction).not.toHaveBeenCalled() // the first entry is the template's own, under its fixed id
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument() // closed although `done` never settles
     })
 
     it('starts in the month of a back-dated entry, on its day', async () => {
@@ -434,9 +429,9 @@ describe('AddTransactionSheet', () => {
       fireEvent.change(screen.getByLabelText('Pick a date'), { target: { value: '2026-09-30' } })
       await user.click(screen.getByRole('switch', { name: 'Repeat every month on day 30' }))
       await user.click(screen.getByRole('button', { name: 'Add €9.00 · Coffee' }))
-      const input = { kind: 'expense', amount: 900, categoryId: 'c1', note: '', dayOfMonth: 30, startMonth: '2026-09', endMonth: null }
-      expect(createRecurring).toHaveBeenCalledWith(input)
-      expect(materialiseRecurring).toHaveBeenCalledWith({ ...input, id: 'r-new', lastAppliedMonth: null }, ['2026-09'])
+      expect(createRecurringWithFirstInstance).toHaveBeenCalledExactlyOnceWith({
+        kind: 'expense', amount: 900, categoryId: 'c1', note: '', dayOfMonth: 30, startMonth: '2026-09', endMonth: null,
+      })
     })
 
     it('adds an ordinary entry when left off, or turned off again', async () => {
@@ -449,8 +444,7 @@ describe('AddTransactionSheet', () => {
       await user.click(screen.getByRole('switch'))
       await user.click(screen.getByRole('button', { name: 'Add €5.00 · Coffee' }))
       expect(createTransaction).toHaveBeenCalledWith({ kind: 'expense', amount: 500, categoryId: 'c1', note: '', date: '2026-10-17' })
-      expect(createRecurring).not.toHaveBeenCalled()
-      expect(materialiseRecurring).not.toHaveBeenCalled()
+      expect(createRecurringWithFirstInstance).not.toHaveBeenCalled()
     })
 
     it('starts off again on the next open, and the kind is remembered as for any entry', async () => {
@@ -475,14 +469,15 @@ describe('AddTransactionSheet', () => {
       expect(repeat()).not.toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /save €1,200\.00 · coffee/i }))
       expect(updateTransaction).toHaveBeenCalledWith('rec_r1_2026-10', expect.objectContaining({ amount: 120_000, note: 'rent' }))
-      expect(createRecurring).not.toHaveBeenCalled()
+      expect(createRecurringWithFirstInstance).not.toHaveBeenCalled()
     })
 
-    it('reports a failed template or first entry in a toast after the sheet has closed', async () => {
-      const denied = () => new FirebaseError('permission-denied', 'Missing or insufficient permissions.')
-      // Built on call, so each rejection gets its handler in the tick it is created.
-      createRecurring.mockImplementation(() => ({ id: 'r-new', done: Promise.reject(denied()) }))
-      materialiseRecurring.mockImplementation(() => Promise.reject(denied()))
+    it('reports a refused template (and so its first entry) in a toast after the sheet has closed', async () => {
+      // Built on call, so the rejection gets its handler in the tick it is created.
+      createRecurringWithFirstInstance.mockImplementation(() => ({
+        id: 'r-new',
+        done: Promise.reject(new FirebaseError('permission-denied', 'Missing or insufficient permissions.')),
+      }))
       const user = userEvent.setup()
       setup()
       await user.click(screen.getByText('open-add'))

@@ -78,6 +78,9 @@ export function RecurringPage() {
       <ul className="mt-2 overflow-hidden rounded-card bg-surface">
         {templates.map((t) => {
           const category = byId.get(t.categoryId)
+          const name = category?.name ?? 'Uncategorized'
+          // Each row's buttons say whose they are, so a list of them still reads apart: "Stop Housing (Flat)".
+          const which = t.note ? `${name} (${t.note})` : name
           const valid = isMaterialisable(t)
           // Running past this month: stopping it now changes something.
           const canStop = valid && (t.endMonth === null || t.endMonth > thisMonth)
@@ -89,7 +92,7 @@ export function RecurringPage() {
               <div className="flex items-center gap-3">
                 <CategoryIcon category={category} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px]">{category?.name ?? 'Uncategorized'}</span>
+                  <span className="block truncate text-[15px]">{name}</span>
                   {t.note ? <span className="block truncate text-xs text-muted">{t.note}</span> : null}
                 </span>
                 <span className={`tnum text-[15px] font-medium ${t.kind === 'income' ? 'text-accent' : 'text-text'}`}>
@@ -100,12 +103,12 @@ export function RecurringPage() {
               <p className="mt-1 pl-12 text-xs text-muted">{valid ? schedule : 'Invalid template'}</p>
               <div className="mt-2 flex justify-end gap-2">
                 {canStop ? (
-                  <Button variant="ghost" onClick={() => stop(t)}>
+                  <Button variant="ghost" aria-label={`Stop ${which}`} onClick={() => stop(t)}>
                     Stop
                   </Button>
                 ) : null}
-                <Button variant="danger" onClick={() => remove(t)}>
-                  Delete
+                <Button variant="danger" aria-label={`Delete template ${which}`} onClick={() => remove(t)}>
+                  Delete template
                 </Button>
               </div>
             </li>

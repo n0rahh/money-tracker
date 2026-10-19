@@ -113,6 +113,14 @@ describe('useRecurringMaterialiser', () => {
     expect(materialiseRecurring).toHaveBeenCalledWith(RENT, ['2026-09', '2026-10'])
   })
 
+  it('waits while the list is loading, whatever fromCache says', () => {
+    // useRecurring never reports this pair (fromCache starts true), but the gate must not lean on that.
+    withTemplates({ templates: [RENT], loading: true, fromCache: false })
+    mount()
+    resume()
+    expect(materialiseRecurring).not.toHaveBeenCalled()
+  })
+
   it('does nothing once the subscription has failed, even with templates from an earlier snapshot', () => {
     withTemplates({ templates: [RENT], error: new FirebaseError('permission-denied', 'Missing or insufficient permissions.') })
     mount()
@@ -154,5 +162,12 @@ describe('useRecurringMaterialiser', () => {
     withTemplates({ templates: [{ ...RENT }] })
     resume()
     expect(materialiseRecurring).toHaveBeenCalledTimes(1)
+  })
+
+  it('says only that it failed when the rejection carries no error to explain', async () => {
+    materialiseRecurring.mockImplementation(() => Promise.reject('offline'))
+    withTemplates({ templates: [RENT] })
+    mount()
+    expect(await screen.findByRole('status')).toHaveTextContent(/^Could not add the repeating entries$/)
   })
 })

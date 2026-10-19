@@ -6,13 +6,13 @@ import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
 import { addDays, parseIsoDate, todayIso } from '../lib/dates'
-import { createRecurring, createTransaction, deleteTransaction, materialiseRecurring, restoreTransaction, updateTransaction } from '../lib/firestore'
+import { createRecurringWithFirstInstance, createTransaction, deleteTransaction, restoreTransaction, updateTransaction } from '../lib/firestore'
 import { EMPTY_KEYPAD, keypadFromMinor, keypadMinor, pressKey, type KeypadState } from '../lib/keypad'
 import { formatMoney, minorUnitDigits } from '../lib/money'
 import { readErrorText } from '../lib/readError'
 import { templateFrom } from '../lib/recurring'
 import { orderCategoriesByRecency, suggestions, type Suggestion } from '../lib/stats'
-import type { IsoDate, Kind, Settings, Transaction, TransactionInput } from '../lib/types'
+import type { IsoDate, Kind, Settings, Transaction } from '../lib/types'
 import { AmountDisplay } from './AmountDisplay'
 import { Button } from './Button'
 import { CategoryChip } from './CategoryChip'
@@ -39,19 +39,6 @@ export function AddTransactionSheet() {
       onClose={close}
     />
   )
-}
-
-/**
- * A new entry with "Repeat every month" on: the template, then its own entry for the entry's month through
- * materialiseRecurring, under that month's deterministic id rather than through createTransaction. The materialiser may
- * see the new template a moment before this batch lands and write the same month itself: same id, so still one entry.
- * The template object is built here rather than read back, as no write is waited for.
- */
-function startRepeating(entry: TransactionInput): Promise<unknown> {
-  const input = templateFrom(entry)
-  const { id, done } = createRecurring(input)
-  // One promise for both writes, so a failure is reported once.
-  return Promise.all([done, materialiseRecurring({ ...input, id, lastAppliedMonth: null }, [input.startMonth])])
 }
 
 type FormProps = {
@@ -127,7 +114,7 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     const input = { kind, amount, categoryId: selected.id, note: note.trim(), date }
     let pending: Promise<unknown>
     if (editing) pending = updateTransaction(editing.id, { ...input, at: editing.date === date ? editing.at.toDate() : undefined })
-    else if (repeat) pending = startRepeating(input)
+    else if (repeat) pending = createRecurringWithFirstInstance(templateFrom(input)).done
     else pending = createTransaction(input).done
     pending.catch(fail('Could not save'))
     rememberKind(kind)
