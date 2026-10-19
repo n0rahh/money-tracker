@@ -59,13 +59,13 @@ npm run build                 # warning-free; first paint ≈ 302 kB gzipped (bu
 ## Deploy
 
 ```bash
-npx firebase deploy --only firestore --project money-tracker-vlad   # rules + composite index (first time, and whenever they change)
-npm run deploy                                                       # build + hosting + rules + index
+npx firebase deploy --only firestore --project money-tracker-vlad   # 1. rules + composite index (first time, and whenever they change); then wait about a minute
+npm run deploy                                                       # 2. build + hosting + rules + index
 ```
 
 The build inlines `.env.local`, so it must hold the real config (and `VITE_USE_EMULATORS=0`) before deploying. Production builds never include the emulator hookup. Follow [docs/device-checklist.md](docs/device-checklist.md) for the first deploy and the iPhone verification.
 
-`npm run deploy` ships the rules together with hosting, and Milestone 3 needs that: its client reads `budgets` and writes `recurring`, which the M2 rules deny. Never deploy hosting alone. The M2 client works with the M3 rules, so the rules may also go first.
+Milestone 3 changes the rules, so deploy them first: run the `--only firestore` line, wait about a minute for the rules to apply, then run `npm run deploy` (its rules step then has nothing new to release). The M2 client works with the M3 rules, so this order is always safe; never deploy hosting alone. One `npm run deploy` does release the rules seconds before hosting, but a phone that reloads into the new build before they apply runs against the M2 rules: budgets and recurring show permission errors, nothing is materialised, Export JSON fails, and a repeating entry saved in that minute disappears. Relaunching the app after the minute recovers everything but that entry.
 
 ## Backups and import
 
@@ -73,7 +73,7 @@ Settings → Data has Export CSV, Export JSON and Import CSV. Exports read from 
 
 - **Export JSON** is the full backup: categories, budgets, recurring templates and every entry. There is no JSON importer yet, so restoring one is a manual job.
 - **Export CSV** holds the entries only (`id,date,kind,amount,currency,category,note,source`), for a spreadsheet.
-- **Import CSV** takes any CSV with a header row and lets you match its columns; a Money Manager CSV export works as it is. Importing the same file again overwrites instead of doubling, and re-importing the app's own CSV export puts every entry back under its own id, so the count does not change. A CSV restores entries only: icons, colours, budgets and templates are not in it.
+- **Import CSV** takes any CSV with a header row and lets you match its columns; a Money Manager CSV export works as it is. Importing the same file again overwrites instead of doubling, and re-importing the app's own CSV export puts every entry back under its own id, so the count does not change. It also reverts edits made since that export and brings back entries deleted since. A CSV restores entries only: icons, colours, budgets and templates are not in it.
 
 A Money Manager `.mmbak` backup is an SQLite database. To see what is in it, dump every table to a CSV with Node ≥ 24.12 (nothing is converted, nothing goes to Firestore):
 

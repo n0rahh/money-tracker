@@ -59,30 +59,34 @@ Device: iPhone, iOS 26+, Safari. URL: https://money-tracker-vlad.web.app
 
 ## Milestone 3 (power features)
 
-Run after the M3 deploy. `npm run deploy` must have shipped the rules with hosting: the M2 rules deny `budgets` and `recurring`, so with them every budget read and every recurring write fails with permission-denied.
+### Deploy
+- [ ] `npx firebase deploy --only firestore --project money-tracker-vlad`, wait about a minute for the rules to apply, then `npm run deploy`. Launch the app twice: the second launch runs the new build.
+- [ ] If Home shows "Could not load budgets: …" right after a deploy (the phone reloaded before the rules applied), relaunch after a minute: budgets and Settings → Recurring come back. A repeating entry saved in that minute is gone; save it again.
 
 ### Budgets
-- [ ] Categories → an expense category: the "Monthly budget" field does not zoom on focus; the decimal keypad's comma works ("12,5" saves 12.50); "0" says "Enter an amount above 0, or tap No budget"; "No budget" clears the field and keeps the keyboard and the focus in the sheet. An income category has no field.
-- [ ] Home at 375 px: "Budgets: … of …" under the hero; a budgeted row's bar is as wide as any other row's, every amount ends in the same column, and the third line reads "<spent> of <budget>".
+- [ ] Categories → an expense category: the "Monthly budget" field does not zoom on focus; the decimal keypad's comma works ("12,5" saves 12.50); "0" says "Enter an amount above 0, or tap No budget"; a valid value reads back as "… a month"; "No budget" clears the field and keeps the keyboard and the focus in the sheet. An income category has no field.
+- [ ] Home at 375 px: "Budgets: … of …" under the hero; a budgeted row's bar is as wide as any other row's, every amount ends in the same column, and the third line reads "<spent> of <budget>"; with 6- or 7-digit amounts it wraps without overflowing.
 - [ ] Exactly at the limit the line ends "· at limit" and the bar turns to the expense colour; at 150 % it ends "· <overage> over". Check with a rose and a red category (Health, Gifts), where the colour barely changes and the words carry it.
-- [ ] A budgeted category with nothing spent shows an empty row after the others. On the 1st, before the first entry, only the "Budgets" line shows.
+- [ ] A budgeted category with nothing spent shows an empty row after the others, with a −100 % badge if it spent last month. On the 1st, before the first entry, only the "Budgets" line shows. Archiving a budgeted category takes its row and its limit out of the line.
 - [ ] Create a budgeted category in airplane mode, then reconnect: the category and its budget both arrive.
-- [ ] A template whose entry is dated later in the month (rent on the 25th) counts in "Spent" and in the budget line from the 1st on, while the pace line leaves it out until the 25th.
+- [ ] A template whose entry is dated later in the month (rent on the 25th) is listed above Today from the 1st on and counts in "Spent" and in the budget line, while the pace line leaves it out until the 25th.
 
 ### Recurring
 - [ ] Add sheet at 375×812: "Repeat every month on day N" sits under the categories, partly behind the keypad (27 of its 44 px show); scrolling the body reveals it, and it toggles. At 390×844 it fits.
 - [ ] Toggle on, Save: the sheet closes at once; the entry is on Home, and Settings → Recurring shows the template (the count goes up by one).
-- [ ] Save a repeating entry online and watch the network (Safari Web Inspector) or the Firestore usage: one batch per save, no second write of the same month.
+- [ ] Save a repeating entry online and watch the network (Safari Web Inspector) or the Firestore usage: one batch per save, no second write of the same month (the Firestore console shows one `rec_<id>_<YYYY-MM>` entry).
 - [ ] Online, save a test repeating entry dated last month (Pick…): last month's entry and this month's both appear. In airplane mode, a second test entry shows only last month's (nothing is materialised from a list the server has not confirmed); after reconnecting, its entry for this month appears, once. Delete both test templates and their entries afterwards.
 - [ ] On the first launch or resume in a new month (or after setting the phone's date into the next month), each template's entry for that month appears by itself, on its day; day 31 falls on the month's last day. Entries written early by a date change are that month's real entries: keep them, since the app never writes a month twice.
-- [ ] Stop: the schedule gains "· until <this month>" and Stop goes away; this month's entry stays. Delete template, then Undo within 6 s: the template is back with its schedule, and its entries never change.
-- [ ] Recurring page at 375 px: long notes are cut with an ellipsis; Stop and "Delete template" are 44 px; VoiceOver names each with its category and note.
+- [ ] Stop: the schedule gains "· until <this month>" and Stop goes away; this month's entry stays, and next month nothing is added. Delete template, then Undo within 6 s: the template is back with its schedule, and its entries never change.
+- [ ] Delete one month's entry of a template, or edit it: the next launch neither brings it back nor undoes the edit.
+- [ ] Once a template's entry is written (rent on its day), the Add sheet's category order and its Quick add chips stay as they were: entries made by a template do not count.
+- [ ] Recurring page at 375 px: long notes are cut with an ellipsis; Stop and "Delete template" are 44 px; VoiceOver names each with its category and note ("Stop Housing (Flat)", "Delete template Housing (Flat)").
 
 ### Month picker
-- [ ] Tap the month label: "Choose month" opens on the shown month's year, the shown month lime, this month with a dot (legible on the dark and on the lime button); the arrows change the year; a month ahead opens with its empty state; the sheet closes on a pick, on the close button and on the backdrop; December clears the home indicator.
+- [ ] Tap the month label: "Choose month" opens on the shown month's year, the shown month lime, this month with a dot (legible on the dark and on the lime button); the arrows change the year; a month ahead opens with its empty state; the sheet closes on a pick, on the close button and on the backdrop; December clears the home indicator. Picking the current month makes Home follow the calendar again.
 
 ### Search
-- [ ] The closed magnifier (a quiet icon, no circle) is easy to find and does not blink on month switches.
+- [ ] The closed magnifier (a quiet icon, no circle) is easy to find, does not blink on month switches, and is dimmed for a month without entries.
 - [ ] Tap it: the keyboard rises at once, with no second tap; the field sits at the top, below the status bar and the Dynamic Island, with All / Expenses / Income under it and the days under that. Safari does not scroll the page again once the keyboard is up. If any of this fails, take the decision table in `docs/m3-rulings.md` (search placement).
 - [ ] Type "latte": only the matching days, "N matching entries · −…", each day header the total of its rows; a query matching only income reads "· +…". Type "zzz": "No matches", and the field does not slide behind the keyboard.
 - [ ] The keyboard shows a Search key and does not autocorrect; Search puts the keyboard away and keeps the results; the clear button empties the field and keeps the keyboard; the kinds work with the keyboard up.
@@ -90,7 +94,7 @@ Run after the M3 deploy. `npm run deploy` must have shipped the rules with hosti
 - [ ] On the Polish keyboard, "zabka" finds "Żabka" and "lodz" finds "Łódź".
 - [ ] At 375 px a long caption breaks before the dot, and VoiceOver reads it sensibly.
 - [ ] Scroll to the top and tap the magnifier again: the whole month, and the summary, pace line, strip and breakdown never changed. Changing the month (arrows or picker) closes the search.
-- [ ] A long month name in another language is cut with an ellipsis; the arrows stay 44 px.
+- [ ] Header at 375 px: the arrows, the label and the magnifier are each 44 px; a long month name in another language is cut with an ellipsis.
 - [ ] Delete the last entry of a month while searching, then tap Undo: the list returns with the query kept and the focus where it was.
 
 ### Undo and toasts
@@ -99,6 +103,8 @@ Run after the M3 deploy. `npm run deploy` must have shipped the rules with hosti
 - [ ] With VoiceOver on (this decides the live region): delete an entry, and "Deleted, Undo" is read once; delete a second one within 6 s, and it is read once for the second; tap Undo: silence. Two announcements or none: apply the fallback in `docs/m3-rulings.md` (nested live region).
 - [ ] Undo in airplane mode: the entry comes back at once and syncs after reconnecting.
 - [ ] A plain toast stays when a sheet opens: in airplane mode tap Export CSV ("Could not export while offline"), then + at once. The toast stays over the keypad, and taps on `0` and `.` still reach the keys, with and without VoiceOver.
+- [ ] With VoiceOver or a keyboard, move to the Undo button: the toast stays while Undo has the focus (or the pointer is over it), then runs out as usual.
+- [ ] (Known, rare, accepted) Tap Export, then open Currency, Import CSV or + while the row still says "Exporting…": the share sheet may open over that sheet, or the "N entries ready to export · Share" toast may cover its lower part for up to 10 s.
 
 ### Export and import
 - [ ] Export CSV and Export JSON on the iPhone: the share sheet opens and Save to Files works. With a few thousand entries the read may take longer than the tap allows: "N entries ready to export" with Share then opens it. Cancelling the share sheet says nothing, and both rows work again.
@@ -106,10 +112,22 @@ Run after the M3 deploy. `npm run deploy` must have shipped the rules with hosti
 - [ ] Open the CSV in Numbers, Google Sheets and Excel: Polish letters, quoting, a note starting with `+` or `=`. Excel in a Polish locale shows one column unless the file is opened through its text import.
 - [ ] Export in airplane mode: "Could not export while offline". On a weak connection, note how long it takes to fail.
 - [ ] Import CSV, choosing a file from Files: the sheet at 375 px (44 px selects, no zoom on the selects or the file input, the preview, the error list).
-- [ ] Import a real Money Manager CSV: the columns are guessed, Transfer values are skipped, dates read day first, decimal commas work; a second import adds nothing. Then import the app's own CSV export into the same account: the number of entries does not change.
+- [ ] Import a real Money Manager CSV: the columns are guessed, Transfer values are skipped, dates read day first, decimal commas work; then the preview, "Import N entries" with its progress line, the toast, and Home on the latest imported month. A second import adds nothing. Then import the app's own CSV export into the same account: the number of entries does not change, the line "N rows keep this app's own ids (existing entries with those ids are replaced)" shows, and edits made since the export are reverted, as expected.
 - [ ] A file whose slash dates read two ways shows "Slash dates" with an example line; flip it and watch the preview follow. A Windows-1250 file shows the hint to save it as UTF-8.
-- [ ] Import in airplane mode: the progress line stays at "0 of N written" (it counts what the server confirms); close the sheet, and the rows already show on Home. Reconnect: they sync, and the "Imported N entries" toast follows. A file of several thousand rows: the progress line moves and the page stays responsive; an import that stops partway says "Imported N of M entries".
+- [ ] Import in airplane mode: the progress line stays at "0 of N written" (it counts what the server confirms); close the sheet, and the rows already show on Home. Reconnect: they sync, and the "Imported N entries" toast follows. A file of several thousand rows: the progress line moves and the page stays responsive; an import that stops partway says "Imported N of M entries", and importing the file again (the next day, after a quota stop) finishes it.
 
 ### After a deploy
 - [ ] After a cold start in airplane mode, open /trends: it renders (every page chunk is precached).
 - [ ] With the app left open, deploy again, then tap a page not visited since (Trends, Categories, Settings) without relaunching: it opens, or the app reloads once into it; never "Something went wrong".
+
+### Money Manager backup (Mac)
+- [ ] `node scripts/mmbak-dump.mjs imports/<file>.mmbak imports/dump` (Node ≥ 24.12): one CSV per table, with its row count. A file that is not SQLite gives exit code 1 and a clear message.
+
+### Only matters with more than one device
+On one phone none of this shows. It is what to expect once the Mac, or a second phone, is signed in too.
+- Both devices write a template's month into the same document (`rec_<template>_<YYYY-MM>`), so a month is never added twice.
+- A device writes repeating entries only from a list the server has confirmed, so a stale cached copy does not write again the months the other device already wrote, or over the edits made there.
+- Two devices launching within seconds of a new month can still overwrite an edit made on one of them to that month's entry.
+- Undo writes back the copy it read: an edit made on the other device in between is lost (the last write wins).
+- Undo of a template restores the `lastAppliedMonth` it read: if the other device wrote a month in between, the next run writes that month again (same id), over any edit to it.
+- On the Mac, exports download instead of opening a share sheet.
