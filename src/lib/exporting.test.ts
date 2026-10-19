@@ -139,11 +139,14 @@ describe('exportFileName', () => {
 })
 
 describe('shareOrDownload', () => {
-  const define = (name: 'canShare' | 'share', value: unknown) => Object.defineProperty(navigator, name, { value, configurable: true, writable: true })
+  const define = (name: 'canShare' | 'share' | 'maxTouchPoints', value: unknown) => Object.defineProperty(navigator, name, { value, configurable: true, writable: true })
+  /** A phone or tablet: what iPhone and iPad report. */
+  const touch = () => define('maxTouchPoints', 5)
 
   afterEach(() => {
     Reflect.deleteProperty(navigator, 'canShare')
     Reflect.deleteProperty(navigator, 'share')
+    Reflect.deleteProperty(navigator, 'maxTouchPoints')
     vi.restoreAllMocks()
     vi.useRealTimers()
   })
@@ -159,9 +162,10 @@ describe('shareOrDownload', () => {
     return { createObjectURL, revokeObjectURL, clicks }
   }
 
-  it('hands the file to the share sheet when the browser can share files', async () => {
+  it('hands the file to the share sheet on a touch device that can share files', async () => {
     const canShare = vi.fn(() => true)
     const share = vi.fn(async () => {})
+    touch()
     define('canShare', canShare)
     define('share', share)
     const { createObjectURL } = spyDownload()
@@ -205,7 +209,20 @@ describe('shareOrDownload', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:export')
   })
 
+  it('downloads on a device without touch even when it could share: a Mac, whose share popover has no place to save', async () => {
+    vi.useFakeTimers()
+    const share = vi.fn(async () => {})
+    define('maxTouchPoints', 0)
+    define('canShare', () => true)
+    define('share', share)
+    const { clicks } = spyDownload()
+    await expect(shareOrDownload('money-tracker-2026-10-19.csv', 'text/csv', 'a\r\n')).resolves.toBe('downloaded')
+    expect(share).not.toHaveBeenCalled()
+    expect(clicks).toEqual([{ href: 'blob:export', download: 'money-tracker-2026-10-19.csv', inDocument: true }])
+  })
+
   it.each(['AbortError', 'NotAllowedError'])('passes a refused share on to the caller (%s)', async (name) => {
+    touch()
     define('canShare', () => true)
     define('share', vi.fn(async () => Promise.reject(new DOMException('no', name))))
     const { clicks } = spyDownload()

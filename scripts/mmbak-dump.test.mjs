@@ -124,6 +124,16 @@ test('reports a damaged database instead of crashing', () => {
   assert.ok(result.stderr.includes(`Could not read ${file}: `), result.stderr)
 })
 
+test('says so when the output folder cannot be written, not that the backup could not be read', () => {
+  const file = backup()
+  const notAFolder = join(dir, 'taken')
+  writeFileSync(notAFolder, 'a file where the folder should go')
+  const result = run(file, notAFolder)
+  assert.equal(result.status, 1)
+  assert.ok(result.stderr.includes(`Could not write to ${notAFolder}: `), result.stderr)
+  assert.ok(!result.stderr.includes('Could not read'), result.stderr)
+})
+
 test('prints the usage and exits with 2 without two arguments', () => {
   for (const args of [[], ['only-one.mmbak'], ['a', 'b', 'c']]) {
     const result = run(...args)
@@ -137,5 +147,5 @@ test('writes cells as the CSV of the app: NULL empty, BLOB in hex, integers exac
   assert.equal(cellText(new Uint8Array([0, 15, 255])), '0x000fff')
   assert.equal(cellText(9007199254740993n), '9007199254740993')
   assert.equal(cellText(12.5), '12.5')
-  assert.equal(toCsv([['a,b', ' x', 'y'], ['', '"q"', 'z']]), '\uFEFF"a,b"," x",y\r\n,"""q""",z\r\n')
+  assert.equal(toCsv([['a,b', ' x', 'y;z'], ['', '"q"', 'z']]), '\uFEFF"a,b"," x","y;z"\r\n,"""q""",z\r\n')
 })

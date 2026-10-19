@@ -101,9 +101,13 @@ export function subscribeTransactionsInRange(
   )
 }
 
-/** Every transaction, newest first, read once from the server (as getAllCategories): an export, one tap, within spec §4's read budget. */
+/**
+ * Every transaction, read once from the server (as getAllCategories): an export, one tap, within spec §4's read budget.
+ * The whole collection, in no particular order (the export builders sort): ordering by date and time here would leave out
+ * a document without either, one made by hand in the console, say, and a backup should not.
+ */
 export async function getAllTransactions(): Promise<Transaction[]> {
-  const snap = await getDocsFromServer(query(transactionsCol(), orderBy('date', 'desc'), orderBy('at', 'desc')))
+  const snap = await getDocsFromServer(transactionsCol())
   return snap.docs.map((d) => mapTransaction(d.id, d.data()))
 }
 

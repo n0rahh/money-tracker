@@ -82,6 +82,8 @@ async function chooseFile(text: string, user = userEvent.setup()) {
   return user
 }
 const importButton = () => screen.getByRole('button', { name: /^Import/ })
+/** A file with a Type column: one income, a transfer and two expenses. */
+const TYPED = ['Date,Category,Amount,Type', '2026-10-01,Food,1,Expense', '2026-10-02,Pay,2,Income', '2026-10-03,Food,3,Transfer-Out', '2026-10-04,Food,4,Expense'].join('\n')
 /** Text as read on screen: Intl's no-break spaces ("PLN 12.50") as plain ones. */
 const text = (el: Element) => (el.textContent ?? '').replace(/\s/g, ' ')
 
@@ -319,11 +321,182 @@ describe('ImportSheet', () => {
     expect(importButton()).toBeEnabled()
   })
 
-  it('toasts a category that could not be written', async () => {
+  it('says so when the entries are in but a new category could not be saved, and stays open', async () => {
     createCategory.mockImplementation(() => ({ id: 'new', done: Promise.reject(new FirebaseError('permission-denied', 'Missing or insufficient permissions.')) }))
     const user = await chooseFile(MONEY_MANAGER)
     await user.click(importButton())
-    expect(await screen.findByRole('status')).toHaveTextContent("Could not import: You don't have access to this data (signed in with the wrong account?)")
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      "Imported 5 entries, but a new category could not be saved: You don't have access to this data (signed in with the wrong account?)",
+    )
     expect(onClose).not.toHaveBeenCalled()
+    expect(importButton()).toBeEnabled()
+  })
+
+  it('says how many entries were written when the import stops partway, and stays open', async () => {
+    importTransactions.mockImplementation(async (_rows: unknown[], onProgress: (done: number) => void) => {
+      onProgress(3)
+      throw new FirebaseError('resource-exhausted', 'Quota exceeded.')
+    })
+    const user = await chooseFile(MONEY_MANAGER)
+    await user.click(importButton())
+    expect(await screen.findByRole('status')).toHaveTextContent('Imported 3 of 5 entries; the rest failed: Firebase quota reached, data will refresh after midnight PT')
+    expect(onClose).not.toHaveBeenCalled()
+    expect(importButton()).toHaveTextContent('Import 5 entries')
+  })
+
+  it('counts in the language of the settings: 601 of 1,001', async () => {
+    importTransactions.mockImplementation(async (_rows: unknown[], onProgress: (done: number) => void) => {
+      onProgress(400)
+      onProgress(601)
+      throw new FirebaseError('resource-exhausted', 'Quota exceeded.')
+    })
+    const lines = Array.from({ length: 1001 }, (_, i) => `2026-10-${String((i % 28) + 1).padStart(2, '0')},Food,-${i + 1}`)
+    const user = await chooseFile(['Date,Category,Amount', ...lines].join('\n'))
+    expect(importButton()).toHaveTextContent('Import 1,001 entries')
+    await user.click(importButton())
+    expect(await screen.findByRole('status')).toHaveTextContent('Imported 601 of 1,001 entries; the rest failed: Firebase quota reached, data will refresh after midnight PT')
+  })
+
+  it('reads the sign again when Kind is set to None', async () => {
+    const user = await chooseFile(TYPED)
+    await user.selectOptions(screen.getByLabelText('Kind'), 'None')
+    expect(screen.getByLabelText('Negative amounts are expenses')).toBeChecked()
+  })
+
+  describe('slash dates', () => {
+    const previewDates = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map((r) => text(within(r).getAllByRole('cell')[0]))
+
+    it('asks how they read when the file does not show it, day first unless changed', async () => {
+      const user = await chooseFile('Date,Category,Amount\n03/04/2026,Food,-1\n05/05/2026,Food,-2\n')
+      const order = screen.getByLabelText('Slash dates')
+      expect(order).toHaveDisplayValue('Day first (DD/MM)')
+      expect(screen.getByText('03/04/2026 reads as Apr 3, 2026.')).toBeInTheDocument()
+      expect(previewDates()).toEqual(['Apr 3, 2026', 'May 5, 2026'])
+      await user.selectOptions(order, 'Month first (MM/DD)')
+      expect(order).toHaveDisplayValue('Month first (MM/DD)')
+      expect(screen.getByText('03/04/2026 reads as Mar 4, 2026.')).toBeInTheDocument()
+      expect(previewDates()).toEqual(['Mar 4, 2026', 'May 5, 2026'])
+    })
+
+    it('starts from the order the file proves', async () => {
+      await chooseFile('Date,Category,Amount\n03/04/2026,Food,-1\n10/14/2026,Food,-2\n')
+      expect(screen.getByLabelText('Slash dates')).toHaveDisplayValue('Month first (MM/DD)')
+      expect(previewDates()).toEqual(['Mar 4, 2026', 'Oct 14, 2026'])
+    })
+
+    it('asks nothing when no date reads two ways', async () => {
+      await chooseFile('Date,Category,Amount\n2026-10-14,Food,-1\n25/12/2026,Food,-2\n05/05/2026,Food,-3\n')
+      expect(screen.queryByLabelText('Slash dates')).not.toBeInTheDocument()
+    })
+  })
+
+  it('says how many notes and category names are cut to fit', async () => {
+    const long = 'n'.repeat(201)
+    await chooseFile(`Date,Category,Amount,Note\n2026-10-01,${'c'.repeat(41)},-1,${long}\n2026-10-02,Food,-2,${long}\n2026-10-03,Food,-3,short\n`)
+    expect(screen.getByText('2 notes are shortened to 200 characters.')).toBeInTheDocument()
+    expect(screen.getByText('1 category name is shortened to 40 characters.')).toBeInTheDocument()
+  })
+
+  it('says nothing of the kind when nothing is cut', async () => {
+    await chooseFile(MONEY_MANAGER)
+    expect(screen.queryByText(/shortened/)).not.toBeInTheDocument()
+  })
+
+  it("puts the app's own export back under its own ids, and says it replaces those entries", async () => {
+    const own = [
+      'id,date,kind,amount,currency,category,note,source',
+      'Zp3kQ9aTn1xYb7VdLm2R,2026-10-14,expense,12.50,PLN,Groceries,Milk,app',
+      'rec_Tmpl0123456789abcdef_2026-10,2026-10-01,expense,1200.00,PLN,Groceries,Flat,app',
+      '42,2026-10-02,income,5.00,PLN,Salary,,import',
+    ].join('\r\n')
+    const user = await chooseFile(own)
+    expect(screen.getByText('2 rows are entries of this app, from its export: they replace those entries instead of adding them again.')).toBeInTheDocument()
+    await user.click(importButton())
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled())
+    const docs = importTransactions.mock.calls[0][0] as { id: string }[]
+    // "42" is no id this app writes: that row gets its content id, as from any other file.
+    const salary = await importRowId({ kind: 'income', amount: 500, categoryName: 'Salary', date: '2026-10-02', note: '' })
+    expect(docs.map((d) => d.id)).toEqual(['Zp3kQ9aTn1xYb7VdLm2R', 'rec_Tmpl0123456789abcdef_2026-10', salary])
+  })
+
+  it('says nothing of own ids for a file from elsewhere', async () => {
+    await chooseFile(MONEY_MANAGER)
+    expect(screen.queryByText(/entr(y|ies) of this app/)).not.toBeInTheDocument()
+  })
+
+  describe('pinned from the review', () => {
+    it('previews five rows at most', async () => {
+      await chooseFile(['Date,Category,Amount', ...Array.from({ length: 7 }, (_, i) => `2026-10-0${i + 1},Food,-${i + 1}`)].join('\n'))
+      expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(1 + 5)
+    })
+
+    it('says "and N more" only when there are more than five reasons', async () => {
+      await chooseFile(['Date,Category,Amount', ...Array.from({ length: 5 }, (_, i) => `2026-10-0${i + 1},Food,0`)].join('\n'))
+      expect(screen.getAllByText(/^Line \d: Amount is zero$/)).toHaveLength(5)
+      expect(screen.queryByText(/and \d+ more/)).not.toBeInTheDocument()
+    })
+
+    const types = (n: number) => ['Date,Category,Amount,Type', ...Array.from({ length: n }, (_, i) => `2026-10-0${(i % 9) + 1},Food,1,Kind ${i}`)].join('\n')
+
+    it('offers the values of a kind column with up to eight of them', async () => {
+      await chooseFile(types(8))
+      expect(screen.getByRole('group', { name: 'Kind values' })).toBeInTheDocument()
+    })
+
+    it('takes a column with nine values for no kind column, and says so', async () => {
+      await chooseFile(types(9))
+      expect(screen.queryByRole('group', { name: 'Kind values' })).not.toBeInTheDocument()
+      expect(screen.getByText(/This column has 9 different values/)).toBeInTheDocument()
+    })
+
+    it('names a blank value', async () => {
+      await chooseFile('Date,Category,Amount,Type\n2026-10-01,Food,1,\n2026-10-02,Food,1,Income\n')
+      expect(screen.getByRole('group', { name: 'Kind values' })).toHaveTextContent('(empty) · 1')
+    })
+
+    it('starts the values afresh when another column is chosen for Kind', async () => {
+      const user = await chooseFile(TYPED)
+      await user.selectOptions(screen.getByLabelText('Rows with "Transfer-Out"'), 'Expense')
+      await user.selectOptions(screen.getByLabelText('Kind'), 'None')
+      await user.selectOptions(screen.getByLabelText('Kind'), 'Type')
+      expect(screen.getByLabelText('Rows with "Transfer-Out"')).toHaveDisplayValue('Skip')
+    })
+
+    it('never lets a slower read of an earlier file replace the file chosen after it', async () => {
+      const user = userEvent.setup()
+      renderSheet()
+      let release: (content: string) => void = () => {}
+      const slow = csvFile('Date,Category,Amount\n2026-10-01,SlowFile,-1\n', 'slow.csv')
+      vi.spyOn(slow, 'text').mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            release = resolve
+          }),
+      )
+      const input = screen.getByLabelText('CSV file')
+      await user.upload(input, slow)
+      await user.upload(input, csvFile('Date,Category,Amount\n2026-10-02,FastFile,-2\n', 'fast.csv'))
+      await screen.findByRole('group', { name: 'Columns' })
+      expect(screen.getByText('FastFile')).toBeInTheDocument()
+      await act(async () => release('Date,Category,Amount\n2026-10-01,SlowFile,-1\n'))
+      expect(screen.getByText('FastFile')).toBeInTheDocument()
+      expect(screen.queryByText('SlowFile')).not.toBeInTheDocument()
+    })
+
+    it('keeps the mapping and the file as they are while the entries are written', async () => {
+      importTransactions.mockImplementation(() => new Promise<number>(() => {}))
+      const user = await chooseFile(TYPED)
+      await user.click(importButton())
+      await waitFor(() => expect(importButton()).toHaveTextContent('Importing…'))
+      expect(screen.getByLabelText('Date')).toBeDisabled()
+      expect(screen.getByLabelText('Rows with "Expense"')).toBeDisabled()
+      expect(screen.getByLabelText('CSV file')).toBeDisabled()
+    })
+
+    it('says categories for more than one new category', async () => {
+      const user = await chooseFile('Date,Category,Amount\n2026-10-01,Books,-1\n2026-10-02,Games,-2\n')
+      await user.click(importButton())
+      expect(await screen.findByRole('status')).toHaveTextContent('Imported 2 entries · 2 new categories')
+    })
   })
 })

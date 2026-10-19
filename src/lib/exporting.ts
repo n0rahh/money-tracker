@@ -66,13 +66,14 @@ export function exportFileName(extension: 'csv' | 'json', now: Date = new Date()
 const REVOKE_AFTER_MS = 40_000
 
 /**
- * Hands a file to the user: the share sheet where the browser can share files (on iOS that is the way to save one to
- * Files), otherwise a download through a temporary link. A dismissed share sheet rejects with an AbortError, and a share
- * that comes too long after the tap with a NotAllowedError (iOS); both are passed on, and nothing is downloaded instead.
+ * Hands a file to the user: the share sheet on a touch device that can share files (on iOS that is the way to save one to
+ * Files), otherwise a download through a temporary link. A Mac can share files too, but its share popover has no place to
+ * save one, so a device without touch downloads. A dismissed share sheet rejects with an AbortError, and a share that
+ * comes too long after the tap with a NotAllowedError (iOS); both are passed on, and nothing is downloaded instead.
  */
 export async function shareOrDownload(filename: string, mime: string, content: string): Promise<'shared' | 'downloaded'> {
   const file = new File([content], filename, { type: mime })
-  if (navigator.canShare?.({ files: [file] })) {
+  if (navigator.maxTouchPoints > 0 && navigator.canShare?.({ files: [file] })) {
     await navigator.share({ files: [file] })
     return 'shared'
   }

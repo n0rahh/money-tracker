@@ -69,7 +69,9 @@ function separatorOf(text: string): ',' | ';' {
 
 /**
  * Records to CSV text: a BOM first (so Excel reads it as UTF-8), CRLF after every record, and a field in quotes, its own
- * quotes doubled, when it holds a comma, a quote, a line break or a space at either end. `scripts/mmbak-dump.mjs` has a
+ * quotes doubled, when it holds a comma, a semicolon, a quote, a line break or a space at either end. Semicolons are
+ * quoted although the separator is a comma: parseCsv reads `;` as the separator when the first line has more of them
+ * outside quotes, so quoting them keeps every file this writes readable back as written. `scripts/mmbak-dump.mjs` has a
  * copy of these lines, which a test keeps identical.
  */
 export function toCsv(rows: string[][]): string {
@@ -77,13 +79,16 @@ export function toCsv(rows: string[][]): string {
 }
 
 function csvField(value: string): string {
-  return /[",\r\n]|^\s|\s$/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
+  return /[",;\r\n]|^\s|\s$/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
 }
 
 // ---- guessing the columns from the header ----
 
-/** For each field, the column it is read from (an index into the header row), or null for none. */
-export type ColumnGuess = { date: number | null; amount: number | null; kind: number | null; category: number | null; note: number | null }
+/**
+ * For each field, the column it is read from (an index into the header row), or null for none. `id` is the column of
+ * this app's own entry ids, which its CSV export writes first; no control in the sheet shows it.
+ */
+export type ColumnGuess = { date: number | null; amount: number | null; kind: number | null; category: number | null; note: number | null; id: number | null }
 
 /** What a value of the kind column means: either kind, or a row that is not imported. */
 export type KindValue = Kind | 'skip'
@@ -94,6 +99,10 @@ export type ColumnMapping = {
   kind: number | null
   category: number
   note: number | null
+  /** The column of this app's own entry ids (its CSV export has one): a row that carries one keeps it as its document id. */
+  id?: number | null
+  /** How a slash date such as 03/04/2026 reads. When unset, as the file's own dates prove, else day first (slashDateOrderOf). */
+  dateOrder?: DateOrder
   /** Without a kind column: negative amounts are expenses and positive ones income; when false every row is an expense. */
   signMeansExpense: boolean
   /** What some values of the kind column mean, by their trimmed lower-case text; any other value follows `kindOfValue`. */
@@ -106,6 +115,7 @@ const HEADERS: Record<Exclude<keyof ColumnGuess, 'amount'>, string[]> = {
   kind: ['kind', 'type', 'income/expense', 'expense/income', 'inout', 'in/out', 'transaction type', 'typ'],
   category: ['category', 'categorie', 'kategoria', 'category name', 'categories'],
   note: ['note', 'notes', 'description', 'memo', 'title', 'comment', 'opis', 'notatka'],
+  id: ['id'],
 }
 const AMOUNT_HEADERS = ['amount', 'sum', 'value', 'kwota']
 /** "Amount (PLN)", "amount [eur]", "Amount USD". */
@@ -154,14 +164,15 @@ export function guessColumns(header: string[]): ColumnGuess {
   const kind = byName(HEADERS.kind)
   const category = byName(HEADERS.category)
   const note = byName(HEADERS.note)
-  return { date, amount, kind, category, note }
+  const id = byName(HEADERS.id)
+  return { date, amount, kind, category, note, id }
 }
 
 /** The whole mapping of a header row, or null when it names no date, amount or category column. */
 export function guessMapping(header: string[]): ColumnMapping | null {
-  const { date, amount, kind, category, note } = guessColumns(header)
+  const { date, amount, kind, category, note, id } = guessColumns(header)
   if (date === null || amount === null || category === null) return null
-  return { date, amount, kind, category, note, signMeansExpense: kind === null }
+  return { date, amount, kind, category, note, id, signMeansExpense: kind === null }
 }
 
 // ---- reading the cells ----
@@ -224,19 +235,27 @@ export function parseDate(text: string, order: DateOrder): IsoDate | null {
 }
 
 /**
- * Month first only when some slash date of the column cannot be read day first (its second number is above 12) and none
- * needs day first: the order is one for the whole file, so 03/04 is not read one way in one row and the other way in the next.
+ * What the slash dates of a column say about their order, which is one for the whole file, so 03/04 is not read one way
+ * in one row and the other way in the next. `proven`: month first when some date cannot be read day first (its second
+ * number is above 12) and none needs day first, day first the other way round, null when no date proves either or both
+ * appear. `ambiguous`: the first date that reads differently day first and month first (03/04/2026, not 05/05/2026), so
+ * the sheet can ask, or null.
  */
-function slashDateOrder(cells: string[]): DateOrder {
+export function slashDateOrderOf(cells: string[]): { proven: DateOrder | null; ambiguous: string | null } {
   let dayFirst = false
   let monthFirst = false
+  let ambiguous: string | null = null
   for (const cell of cells) {
-    const m = SLASH_DATE.exec(cell.trim().replace(TIME, ''))
+    const text = cell.trim().replace(TIME, '')
+    const m = SLASH_DATE.exec(text)
     if (!m) continue
-    if (Number(m[1]) > 12) dayFirst = true
-    if (Number(m[2]) > 12) monthFirst = true
+    const first = Number(m[1])
+    const second = Number(m[2])
+    if (first > 12) dayFirst = true
+    if (second > 12) monthFirst = true
+    if (ambiguous === null && first !== second && first >= 1 && second >= 1 && first <= 12 && second <= 12) ambiguous = text
   }
-  return monthFirst && !dayFirst ? 'mdy' : 'dmy'
+  return { proven: dayFirst === monthFirst ? null : dayFirst ? 'dmy' : 'mdy', ambiguous }
 }
 
 type Separator = '.' | ','
@@ -356,24 +375,49 @@ const NO_CATEGORY = 'Other'
 
 // ---- rows to import ----
 
-export type ImportRow = { kind: Kind; amount: number; categoryName: string; date: IsoDate; note: string }
+export type ImportRow = {
+  kind: Kind
+  amount: number
+  categoryName: string
+  date: IsoDate
+  note: string
+  /** This app's own id for the entry, from the id column of its CSV export; absent for any other row. */
+  id?: string
+}
 export type RowError = { line: number; reason: string }
+/** What applyMapping read: the rows to import, the rows it cannot import, and how many notes and names it had to cut. */
+export type MappedRows = { ok: ImportRow[]; errors: RowError[]; shortened: { notes: number; names: number } }
+
+/**
+ * The ids this app writes: a Firestore auto-id (the Add sheet, the Shortcut), an import id, and a recurring entry's id.
+ * Nothing else is taken from a file's id column: another app's ids (1, 2, 3...) would overwrite the entries of an earlier
+ * import, and Firestore refuses `.`, `..` and `__x__` as ids, which would fail a whole batch of 400.
+ */
+const OWN_ID = /^(?:[A-Za-z0-9]{20}|imp_[0-9a-f]{24}|rec_[A-Za-z0-9]{1,50}_\d{4}-(?:0[1-9]|1[0-2]))$/
+
+/** The cell as this app's own entry id, or undefined when it is not one of the shapes the app writes. */
+export function ownId(text: string): string | undefined {
+  const id = text.trim()
+  return OWN_ID.test(id) ? id : undefined
+}
 
 /**
  * The data rows of a file (header left out) read through a mapping into rows to import, or into errors with their line
  * as a spreadsheet numbers it (the header is line 1). Blank rows are skipped without a word. A row fails on a missing or
  * unreadable date, a missing, unreadable, zero or oversized amount, or a kind the mapping skips. The kind comes from the
  * kind column, else from the sign when `signMeansExpense`, else every row is an expense; the amount is stored without its
- * sign. Category names and notes are trimmed and cut to what the app stores, line breaks in a note become spaces (the
- * note field holds one line), and a row without a category goes to "Other".
+ * sign. Category names and notes are trimmed and cut to what the app stores (`shortened` counts the cuts, so the sheet
+ * can say so), line breaks in a note become spaces (the note field holds one line), and a row without a category goes to
+ * "Other". A row whose id cell holds one of this app's own ids carries it.
  */
-export function applyMapping(rows: string[][], mapping: ColumnMapping, digits: number): { ok: ImportRow[]; errors: RowError[] } {
+export function applyMapping(rows: string[][], mapping: ColumnMapping, digits: number): MappedRows {
   const cell = (row: string[], column: number | null) => (column === null ? '' : (row[column] ?? '').trim())
   const data = rows.map((row, i) => ({ row, line: i + 2 })).filter(({ row }) => !isBlank(row))
-  const order = slashDateOrder(data.map(({ row }) => cell(row, mapping.date)))
+  const order = mapping.dateOrder ?? slashDateOrderOf(data.map(({ row }) => cell(row, mapping.date))).proven ?? 'dmy'
   const decimal = decimalSeparatorOf(data.map(({ row }) => cell(row, mapping.amount)))
   const ok: ImportRow[] = []
   const errors: RowError[] = []
+  const shortened = { notes: 0, names: 0 }
   for (const { row, line } of data) {
     const dateText = cell(row, mapping.date)
     const date = parseDate(dateText, order)
@@ -400,11 +444,16 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping, digits: n
       }
       kind = meaning
     } else kind = mapping.signMeansExpense && !amount.negative ? 'income' : 'expense'
-    const categoryName = clip(cell(row, mapping.category).replace(/\s+/g, ' '), NAME_MAX).trim() || NO_CATEGORY
-    const note = clip(cell(row, mapping.note).replace(/\s*[\r\n]+\s*/g, ' '), NOTE_MAX).trim()
-    ok.push({ kind, amount: amount.minor, categoryName, date, note })
+    const name = cell(row, mapping.category).replace(/\s+/g, ' ')
+    const noteText = cell(row, mapping.note).replace(/\s*[\r\n]+\s*/g, ' ')
+    if (name.length > NAME_MAX) shortened.names++
+    if (noteText.length > NOTE_MAX) shortened.notes++
+    const categoryName = clip(name, NAME_MAX).trim() || NO_CATEGORY
+    const note = clip(noteText, NOTE_MAX).trim()
+    const id = typeof mapping.id === 'number' ? ownId(cell(row, mapping.id)) : undefined
+    ok.push({ kind, amount: amount.minor, categoryName, date, note, ...(id === undefined ? {} : { id }) })
   }
-  return { ok, errors }
+  return { ok, errors, shortened }
 }
 
 const rowKey = (r: ImportRow) => `${r.kind}|${r.amount}|${r.categoryName.toLowerCase()}|${r.date}|${r.note}`
@@ -421,17 +470,32 @@ export async function importRowId(r: ImportRow, occurrence = 0): Promise<string>
   return `imp_${Array.from(digest.subarray(0, 12), (b) => b.toString(16).padStart(2, '0')).join('')}`
 }
 
-/** The ids of a file's rows, in order: repeated identical rows are counted, so each keeps an id of its own on every import. */
-export function importRowIds(rows: ImportRow[]): Promise<string[]> {
-  const seen = new Map<string, number>()
-  return Promise.all(
-    rows.map((r) => {
-      const key = rowKey(r)
-      const occurrence = seen.get(key) ?? 0
-      seen.set(key, occurrence + 1)
-      return importRowId(r, occurrence)
-    }),
-  )
+/**
+ * The document ids of a file's rows, in order. A row that carries this app's own id keeps it the first time the file uses
+ * it, so importing the app's own CSV export puts every entry back under its own id instead of adding it again; a repeat
+ * of that id in the same file would write one document twice, so it gets a content id like any other row. Content ids
+ * count identical rows, so each keeps an id of its own on every import. Should a content id equal an own id of the same
+ * file (a copied row of an exported import, say), the count goes on, so the copy stays an entry of its own.
+ */
+export async function importRowIds(rows: ImportRow[]): Promise<string[]> {
+  const own = new Set<string>()
+  const keepsOwn = rows.map((r) => {
+    if (r.id === undefined || own.has(r.id)) return false
+    own.add(r.id)
+    return true
+  })
+  const next = new Map<string, number>()
+  const occurrence = (r: ImportRow) => {
+    const key = rowKey(r)
+    const n = next.get(key) ?? 0
+    next.set(key, n + 1)
+    return n
+  }
+  const ids = await Promise.all(rows.map((r, i) => (keepsOwn[i] && r.id !== undefined ? Promise.resolve(r.id) : importRowId(r, occurrence(r)))))
+  for (const [i, r] of rows.entries()) {
+    while (!keepsOwn[i] && own.has(ids[i])) ids[i] = await importRowId(r, occurrence(r))
+  }
+  return ids
 }
 
 // ---- categories ----

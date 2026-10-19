@@ -56,25 +56,34 @@ export function SettingsPage() {
   async function runExport(format: ExportFormat) {
     if (exporting || !settings) return
     setExporting(format)
+    let file: ExportFile
     try {
-      const { buildCsvExport, buildJsonExport, exportFileName } = await import('../lib/exporting')
-      let content: string
-      let count: number
+      // The export code loads alongside the reads, not before them: after an update its chunk may not be cached yet, and
+      // every moment counts against iOS's window for opening the share sheet after the tap.
+      const code = import('../lib/exporting')
       if (format === 'csv') {
-        const [transactions, categories] = await Promise.all([getAllTransactions(), getAllCategories()])
-        content = buildCsvExport(transactions, new Map(categories.map((c) => [c.id, c])), settings.currency)
-        count = transactions.length
+        const [{ buildCsvExport, exportFileName }, transactions, categories] = await Promise.all([code, getAllTransactions(), getAllCategories()])
+        const content = buildCsvExport(transactions, new Map(categories.map((c) => [c.id, c])), settings.currency)
+        file = { name: exportFileName('csv'), mime: 'text/csv', content, count: transactions.length }
       } else {
-        const [transactions, categories, budgets, recurring] = await Promise.all([getAllTransactions(), getAllCategories(), getAllBudgets(), getAllRecurring()])
-        content = buildJsonExport({ transactions, categories, budgets, recurring, currency: settings.currency })
-        count = transactions.length
+        const [{ buildJsonExport, exportFileName }, transactions, categories, budgets, recurring] = await Promise.all([
+          code,
+          getAllTransactions(),
+          getAllCategories(),
+          getAllBudgets(),
+          getAllRecurring(),
+        ])
+        const content = buildJsonExport({ transactions, categories, budgets, recurring, currency: settings.currency })
+        file = { name: exportFileName('json'), mime: 'application/json', content, count: transactions.length }
       }
-      await handOver({ name: exportFileName(format), mime: format === 'csv' ? 'text/csv' : 'application/json', content, count })
     } catch (e) {
       showToast(exportErrorText(e))
-    } finally {
       setExporting(null)
+      return
     }
+    // Busy while reading only: the share sheet is modal, and a share() promise that never settled would keep both rows busy.
+    setExporting(null)
+    await handOver(file).catch((e: unknown) => showToast(exportErrorText(e)))
   }
 
   async function handOver(file: ExportFile) {

@@ -376,6 +376,46 @@ describe('SettingsPage', () => {
       expect(getAllTransactions).toHaveBeenCalledTimes(1) // the second tap reads nothing again
     })
 
+    it('keeps the Share toast for ten seconds', async () => {
+      const timers = vi.spyOn(window, 'setTimeout')
+      shareOrDownload.mockRejectedValueOnce(new DOMException('Not allowed', 'NotAllowedError'))
+      const user = userEvent.setup()
+      page()
+      await user.click(exportCsv())
+      await screen.findByRole('button', { name: 'Share' })
+      expect(timers.mock.calls.map(([, ms]) => ms)).toContain(10_000)
+    })
+
+    it('toasts a share that fails for another reason, and is ready again', async () => {
+      shareOrDownload.mockRejectedValue(new TypeError('Invalid share data'))
+      const user = userEvent.setup()
+      page()
+      await user.click(exportCsv())
+      expect(await screen.findByRole('status')).toHaveTextContent('Could not export: Invalid share data')
+      expect(exportCsv()).toBeEnabled()
+    })
+
+    it('toasts a retry from the Share button that fails', async () => {
+      shareOrDownload.mockRejectedValueOnce(new DOMException('Not allowed', 'NotAllowedError')).mockRejectedValueOnce(new TypeError('Share failed again'))
+      const user = userEvent.setup()
+      page()
+      await user.click(exportCsv())
+      const toast = await screen.findByRole('status')
+      await user.click(within(toast).getByRole('button', { name: 'Share' }))
+      expect(await screen.findByText('Could not export: Share failed again')).toBeInTheDocument()
+    })
+
+    it('is busy while it reads only: the rows are back while the share sheet is still open', async () => {
+      shareOrDownload.mockReturnValue(new Promise(() => {}))
+      const user = userEvent.setup()
+      page()
+      await user.click(exportCsv())
+      await waitFor(() => expect(shareOrDownload).toHaveBeenCalledTimes(1))
+      expect(exportCsv()).toBeEnabled()
+      expect(exportCsv()).not.toHaveTextContent('Exporting…')
+      expect(exportJson()).toBeEnabled()
+    })
+
     it('opens the import sheet, loaded on demand, with the currency and locale, and closes it', async () => {
       const user = userEvent.setup()
       withSettings({ currency: 'PLN', locale: 'pl-PL' })

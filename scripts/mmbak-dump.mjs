@@ -13,14 +13,15 @@ import { join } from 'node:path'
 
 /**
  * The CSV of src/lib/csv.ts's toCsv, line for line (a BOM, CRLF after every record, RFC 4180 quoting of a field with a
- * comma, a quote, a line break or a space at either end). Copied rather than imported: a test keeps the two identical.
+ * comma, a semicolon, a quote, a line break or a space at either end). Copied rather than imported: a test keeps the two
+ * identical.
  */
 export function toCsv(rows) {
   return `\uFEFF${rows.map((row) => `${row.map(csvField).join(',')}\r\n`).join('')}`
 }
 
 function csvField(value) {
-  return /[",\r\n]|^\s|\s$/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
+  return /[",;\r\n]|^\s|\s$/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
 }
 
 /** A cell as CSV text: NULL as an empty field, integers exactly (they are read as BigInt), a BLOB as 0x and its bytes in hex. */
@@ -62,6 +63,23 @@ function fileNameFor(table, used) {
   return `${name}.csv`
 }
 
+/** The output folder, made when missing; a path that cannot be one (a file, say) is reported as such, not as a read error. */
+function makeFolder(outDir) {
+  try {
+    mkdirSync(outDir, { recursive: true })
+  } catch (e) {
+    throw new DumpError(`Could not write to ${outDir}: ${e.message}`)
+  }
+}
+
+async function writeTo(outDir, fileName, content) {
+  try {
+    await writeFile(join(outDir, fileName), content)
+  } catch (e) {
+    throw new DumpError(`Could not write to ${outDir}: ${e.message}`)
+  }
+}
+
 /** Writes `<outDir>/<table>.csv` for every table but SQLite's own; returns each table with its row count and file. */
 export async function dump(file, outDir) {
   const start = startOf(file, SQLITE_HEADER.length)
@@ -76,7 +94,7 @@ export async function dump(file, outDir) {
   const db = new DatabaseSync(file, { readOnly: true, readBigInts: true })
   try {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name").all()
-    mkdirSync(outDir, { recursive: true })
+    makeFolder(outDir)
     const used = new Set()
     const written = []
     for (const { name } of tables) {
@@ -85,7 +103,7 @@ export async function dump(file, outDir) {
       const columns = statement.columns().map((c) => c.name)
       const rows = statement.all().map((row) => row.map(cellText))
       const fileName = fileNameFor(name, used)
-      await writeFile(join(outDir, fileName), toCsv([columns, ...rows]))
+      await writeTo(outDir, fileName, toCsv([columns, ...rows]))
       written.push({ table: String(name), rows: rows.length, file: fileName })
     }
     return written

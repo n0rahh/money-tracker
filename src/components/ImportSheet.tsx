@@ -10,9 +10,12 @@ import {
   importRowIds,
   kindOfValue,
   parseCsv,
+  parseDate,
   planCategories,
+  slashDateOrderOf,
   type ColumnGuess,
   type ColumnMapping,
+  type DateOrder,
   type ImportRow,
   type KindValue,
 } from '../lib/csv'
@@ -44,10 +47,9 @@ const LISTED_ERRORS = 5
 const MAX_KIND_VALUES = 8
 const SELECT = 'min-h-11 min-w-0 max-w-[65%] rounded-chip border border-border bg-surface-2 px-3 text-text disabled:opacity-40'
 const SECTION_LABEL = 'text-xs font-semibold uppercase tracking-wider text-muted'
+const NO_COLUMNS: ColumnGuess = { date: null, amount: null, kind: null, category: null, note: null, id: null }
 
 type Loaded = { header: string[]; rows: string[][]; garbled: boolean }
-
-const entries = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`
 
 /** Option labels for the header's columns: the header text, "Column N" without one, and the position when a name repeats. */
 function columnLabels(header: string[]): string[] {
@@ -62,7 +64,8 @@ function columnLabels(header: string[]): string[] {
 /**
  * Settings → Import CSV: a file, then its columns matched to the entry fields (guessed from the header, so a Money
  * Manager export needs no changes), a preview, and the import itself. Missing categories are created first; the entries
- * get ids derived from their content, so importing a file again overwrites instead of doubling. Mounted only while open.
+ * get ids derived from their content, or the ids of this app's own export, so importing a file again overwrites instead
+ * of doubling. Mounted only while open.
  */
 export function ImportSheet({ currency, locale, onClose }: Props) {
   const { categories, loading: categoriesLoading, error: categoriesError } = useCategories()
@@ -72,10 +75,12 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
   const digits = minorUnitDigits(currency)
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [columns, setColumns] = useState<ColumnGuess>({ date: null, amount: null, kind: null, category: null, note: null })
+  const [columns, setColumns] = useState<ColumnGuess>(NO_COLUMNS)
   const [signMeansExpense, setSignMeansExpense] = useState(true)
   // Only the values whose meaning was changed by hand; the others follow kindOfValue.
   const [kindValues, setKindValues] = useState<ReadonlyMap<string, KindValue>>(new Map())
+  // Only when chosen by hand; otherwise the file's own dates decide, or day first.
+  const [dateOrder, setDateOrder] = useState<DateOrder | null>(null)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   // The latest file chosen: a slower read of an earlier choice must not replace it.
   const reading = useRef(0)
@@ -91,13 +96,22 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
   const mapping = useMemo<ColumnMapping | null>(() => {
     const { date, amount, kind, category, note } = columns
     if (date === null || amount === null || category === null) return null
-    return { date, amount, kind, category, note, signMeansExpense, kindValues }
-  }, [columns, signMeansExpense, kindValues])
+    return { date, amount, kind, category, note, id: columns.id, signMeansExpense, kindValues, ...(dateOrder ? { dateOrder } : {}) }
+  }, [columns, signMeansExpense, kindValues, dateOrder])
   const result = useMemo(() => (loaded && mapping ? applyMapping(loaded.rows, mapping, digits) : null), [loaded, mapping, digits])
   const values = useMemo(() => (loaded && columns.kind !== null ? distinctKindValues(loaded.rows, columns.kind) : []), [loaded, columns.kind])
+  const slashDates = useMemo(() => {
+    const column = columns.date
+    return loaded && column !== null ? slashDateOrderOf(loaded.rows.map((row) => row[column] ?? '')) : null
+  }, [loaded, columns.date])
+  const order: DateOrder = dateOrder ?? slashDates?.proven ?? 'dmy'
   const importing = progress !== null
   const ready = result?.ok ?? []
   const canImport = ready.length > 0 && !importing && !categoriesLoading && !categoriesError
+
+  const numbers = new Intl.NumberFormat(locale ?? undefined)
+  const count = (n: number) => numbers.format(n)
+  const entries = (n: number) => `${count(n)} ${n === 1 ? 'entry' : 'entries'}`
 
   async function choose(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -119,6 +133,7 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
       setColumns(guess)
       setSignMeansExpense(guess.kind === null)
       setKindValues(new Map())
+      setDateOrder(null)
     } catch (e) {
       if (token !== reading.current) return
       setLoaded(null)
@@ -128,8 +143,13 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
 
   function pick(field: Field, value: string) {
     setColumns((c) => ({ ...c, [field]: value === '' ? null : Number(value) }))
-    // Another kind column has other values.
-    if (field === 'kind') setKindValues(new Map())
+    if (field === 'kind') {
+      // Another kind column has other values; with none, the sign is read again, as when no kind column was found.
+      setKindValues(new Map())
+      if (value === '') setSignMeansExpense(true)
+    }
+    // Another date column has other dates.
+    if (field === 'date') setDateOrder(null)
   }
 
   function mean(key: string, meaning: KindValue) {
@@ -139,29 +159,54 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
   async function runImport() {
     if (!canImport) return
     const rows = ready
-    setProgress({ done: 0, total: rows.length })
+    const total = rows.length
+    let done = 0
+    setProgress({ done: 0, total })
     try {
       const plan = planCategories(rows, categories)
       const ids = await importRowIds(rows)
-      // From here to the await, every write is sent and joined in one go: none can fail before its failure is listened to.
+      // From here on every write is sent and listened to at once: none can fail unheard.
       const categoryIds = new Map(plan.matched)
-      const created = plan.create.map(({ key, input }) => {
-        const category = createCategory(input)
-        categoryIds.set(key, category.id)
-        return category.done
-      })
-      // planCategories gives the key of every row a category, matched or created.
-      const categoryOf = (r: ImportRow) => categoryIds.get(categoryKey(r.kind, r.categoryName)) ?? ''
+      const created = Promise.allSettled(
+        plan.create.map(({ key, input }) => {
+          const category = createCategory(input)
+          categoryIds.set(key, category.id)
+          return category.done
+        }),
+      )
+      const categoryOf = (r: ImportRow) => {
+        const categoryId = categoryIds.get(categoryKey(r.kind, r.categoryName))
+        // planCategories gives every row's key a category, matched or created; an empty id would fail a whole batch.
+        if (categoryId === undefined) throw new Error(`no category for "${r.categoryName}"`)
+        return categoryId
+      }
       const docs = rows.map((r, i) => ({
         id: ids[i],
         input: { kind: r.kind, amount: r.amount, categoryId: categoryOf(r), note: r.note, date: r.date, source: 'import' as const },
       }))
-      const written = importTransactions(docs, (done) => {
-        if (open.current) setProgress({ done, total: rows.length })
+      let entriesError: unknown = null
+      const written = await importTransactions(docs, (n) => {
+        done = n
+        if (open.current) setProgress({ done: n, total })
+      }).catch((e: unknown) => {
+        entriesError = e
+        return done
       })
-      const [count] = await Promise.all([written, Promise.all(created)])
+      const categoryFailure = (await created).find((outcome) => outcome.status === 'rejected')
+      const reasonOf = (e: unknown) => (e instanceof Error ? `: ${readErrorText(e)}` : '')
+      if (entriesError !== null) {
+        // Every batch was sent at once, so the others may be in: say how many, and that choosing the file again is safe.
+        showToast(written > 0 ? `Imported ${count(written)} of ${entries(total)}; the rest failed${reasonOf(entriesError)}` : `Could not import${reasonOf(entriesError)}`)
+        if (open.current) setProgress(null)
+        return
+      }
+      if (categoryFailure) {
+        showToast(`Imported ${entries(written)}, but a new category could not be saved${reasonOf(categoryFailure.reason)}`)
+        if (open.current) setProgress(null)
+        return
+      }
       const newCategories = plan.create.length
-      showToast(`Imported ${entries(count)}${newCategories > 0 ? ` · ${newCategories} new ${newCategories === 1 ? 'category' : 'categories'}` : ''}`)
+      showToast(`Imported ${entries(written)}${newCategories > 0 ? ` · ${count(newCategories)} new ${newCategories === 1 ? 'category' : 'categories'}` : ''}`)
       if (!open.current) return
       onClose()
       // Home on the latest month imported, where the entries are.
@@ -175,8 +220,11 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
 
   const dateFormat = new Intl.DateTimeFormat(locale ?? undefined, { day: 'numeric', month: 'short', year: 'numeric' })
   const labels = loaded ? columnLabels(loaded.header) : []
+  const orderExample = slashDates?.ambiguous ? parseDate(slashDates.ambiguous, order) : null
+  // Rows that carry this app's own ids (its CSV export): each id once, as importRowIds keeps it.
+  const ownIds = new Set(ready.flatMap((r) => (r.id === undefined ? [] : [r.id]))).size
   let status = ''
-  if (progress) status = `${progress.done} of ${progress.total} written`
+  if (progress) status = `${count(progress.done)} of ${count(progress.total)} written`
   else if (categoriesError) status = readErrorText(categoriesError)
   else if (categoriesLoading) status = 'Loading categories…'
 
@@ -225,6 +273,18 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
                 </select>
               </div>
             ))}
+            {slashDates?.ambiguous ? (
+              <>
+                <div className="flex min-h-12 items-center justify-between gap-3 border-t border-border">
+                  <label htmlFor={`${id}-order`}>Slash dates</label>
+                  <select id={`${id}-order`} value={order} onChange={(e) => setDateOrder(e.target.value as DateOrder)} className={SELECT}>
+                    <option value="dmy">Day first (DD/MM)</option>
+                    <option value="mdy">Month first (MM/DD)</option>
+                  </select>
+                </div>
+                {orderExample ? <p className="text-xs text-muted">{`${slashDates.ambiguous} reads as ${dateFormat.format(parseIsoDate(orderExample))}.`}</p> : null}
+              </>
+            ) : null}
             {columns.kind === null ? (
               <>
                 <label className="flex min-h-12 items-center gap-3 border-t border-border">
@@ -263,7 +323,18 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
           </fieldset>
           {result ? (
             <>
-              <p className="mt-4 text-sm">{`${ready.length} of ${ready.length + result.errors.length} rows ready to import.`}</p>
+              <p className="mt-4 text-sm">{`${count(ready.length)} of ${count(ready.length + result.errors.length)} rows ready to import.`}</p>
+              {ownIds > 0 ? (
+                <p className="mt-1 text-xs text-muted">
+                  {`${count(ownIds)} ${ownIds === 1 ? 'row is an entry' : 'rows are entries'} of this app, from its export: ${ownIds === 1 ? 'it replaces that entry' : 'they replace those entries'} instead of adding ${ownIds === 1 ? 'it' : 'them'} again.`}
+                </p>
+              ) : null}
+              {result.shortened.notes > 0 ? (
+                <p className="mt-1 text-xs text-muted">{`${count(result.shortened.notes)} ${result.shortened.notes === 1 ? 'note is' : 'notes are'} shortened to 200 characters.`}</p>
+              ) : null}
+              {result.shortened.names > 0 ? (
+                <p className="mt-1 text-xs text-muted">{`${count(result.shortened.names)} category ${result.shortened.names === 1 ? 'name is' : 'names are'} shortened to 40 characters.`}</p>
+              ) : null}
               {ready.length > 0 ? (
                 <>
                   <p className={`mt-4 ${SECTION_LABEL}`}>Preview</p>
@@ -295,13 +366,13 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
               ) : null}
               {result.errors.length > 0 ? (
                 <div className="mt-4">
-                  <p className="text-sm text-danger">{`${result.errors.length} ${result.errors.length === 1 ? 'row' : 'rows'} can't be imported:`}</p>
+                  <p className="text-sm text-danger">{`${count(result.errors.length)} ${result.errors.length === 1 ? 'row' : 'rows'} can't be imported:`}</p>
                   <ul className="mt-1 space-y-0.5 text-xs text-muted">
                     {result.errors.slice(0, LISTED_ERRORS).map((e) => (
                       <li key={e.line}>{`Line ${e.line}: ${e.reason}`}</li>
                     ))}
                   </ul>
-                  {result.errors.length > LISTED_ERRORS ? <p className="mt-0.5 text-xs text-muted">{`…and ${result.errors.length - LISTED_ERRORS} more`}</p> : null}
+                  {result.errors.length > LISTED_ERRORS ? <p className="mt-0.5 text-xs text-muted">{`…and ${count(result.errors.length - LISTED_ERRORS)} more`}</p> : null}
                 </div>
               ) : null}
             </>
