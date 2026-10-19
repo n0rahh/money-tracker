@@ -256,5 +256,24 @@ describe('CategoryEditSheet', () => {
       expect(onClose).toHaveBeenCalledTimes(1)
       expect(await screen.findByRole('status')).toHaveTextContent(/denied/)
     })
+
+    it('reports a failed budget write of a new category in a toast', async () => {
+      setBudget.mockImplementation(() => Promise.reject(new Error('denied'))) // built on call, handled in its tick
+      const user = userEvent.setup()
+      render(sheet())
+      await user.type(screen.getByLabelText('Name'), 'Books')
+      await user.type(budgetField(), '300')
+      await user.click(screen.getByRole('button', { name: 'Create' }))
+      expect(await screen.findByRole('status')).toHaveTextContent(/denied/)
+    })
+
+    it('reports a failed create in a toast', async () => {
+      createCategory.mockImplementation(() => ({ id: 'new', done: Promise.reject(new Error('quota')) }))
+      const user = userEvent.setup()
+      render(sheet())
+      await user.type(screen.getByLabelText('Name'), 'Books')
+      await user.click(screen.getByRole('button', { name: 'Create' }))
+      expect(await screen.findByRole('status')).toHaveTextContent(/quota/)
+    })
   })
 })

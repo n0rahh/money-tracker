@@ -1,22 +1,29 @@
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../components/Button'
 import { CategoryIcon } from '../components/CategoryChip'
 import { CategoryEditSheet } from '../components/CategoryEditSheet'
 import { SegmentedControl } from '../components/SegmentedControl'
+import { useToast } from '../context/ToastContext'
 import { useBudgets } from '../hooks/useBudgets'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
+import { readErrorText } from '../lib/readError'
 import type { Category, Kind } from '../lib/types'
 
 type SheetState = { open: boolean; editing: Category | null; nonce: number }
 
 export function CategoriesPage() {
   const { categories, loading } = useCategories()
-  const { budgets } = useBudgets()
+  const { budgets, error: budgetsError } = useBudgets()
   const { settings } = useSettings()
+  const { showToast } = useToast()
   const [kind, setKind] = useState<Kind>('expense')
   const [sheet, setSheet] = useState<SheetState>({ open: false, editing: null, nonce: 0 })
+  // Unread budgets would otherwise look like none in the edit sheet. Once per failure: the hook keeps its error until it remounts.
+  useEffect(() => {
+    if (budgetsError) showToast(`Could not load budgets: ${readErrorText(budgetsError)}`)
+  }, [budgetsError, showToast])
 
   const active = categories.filter((c) => c.kind === kind && !c.archived).sort((a, b) => a.order - b.order)
   const archived = categories.filter((c) => c.kind === kind && c.archived)

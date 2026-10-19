@@ -176,3 +176,41 @@ export function categoryMonthlyTotals(txs: Transaction[], categoryId: string, mo
   }
   return out
 }
+
+// ---- budgets: spec §9, a monthly limit per category; progress = the category's month total ÷ its limit ----
+
+/**
+ * The limits that count, by category id, in category order: those of active expense categories. That an archived
+ * category's limit rests (no empty row, nothing in the total) is the app's rule, not §9's; income categories and ones
+ * removed by hand have none.
+ */
+export function activeExpenseBudgets(categories: Iterable<Category>, budgets: Map<string, number>): Map<string, number> {
+  const counted = new Map<string, number>()
+  for (const c of categories) {
+    const budget = budgets.get(c.id)
+    if (budget !== undefined && c.kind === 'expense' && !c.archived) counted.set(c.id, budget)
+  }
+  return counted
+}
+
+/** The bar's fill (full at 100 %) and whether the limit is reached, which the plan sets at 100 % itself (`>=`). */
+export function budgetProgress(spent: number, budget: number): { ratio: number; over: boolean } {
+  return { ratio: Math.min(spent / budget, 1), over: spent >= budget }
+}
+
+/** The rows plus an empty one for each budgeted category with nothing spent, after the others, in the order of `budgets`. */
+export function withBudgetRows(rows: CategoryTotal[], budgets: Map<string, number>): CategoryTotal[] {
+  const listed = new Set(rows.map((r) => r.categoryId))
+  const empty = [...budgets.keys()].filter((id) => !listed.has(id)).map((categoryId) => ({ categoryId, total: 0, count: 0, share: 0 }))
+  return [...rows, ...empty]
+}
+
+/** The rows' spending in the budgeted categories against the sum of every limit in `budgets`; null when there is none. */
+export function budgetSummary(rows: CategoryTotal[], budgets: Map<string, number>): { spent: number; budget: number } | null {
+  if (budgets.size === 0) return null
+  let spent = 0
+  let budget = 0
+  for (const r of rows) if (budgets.has(r.categoryId)) spent += r.total
+  for (const limit of budgets.values()) budget += limit
+  return { spent, budget }
+}

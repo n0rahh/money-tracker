@@ -24,14 +24,14 @@ export function BudgetField({ value, currency, locale, onChange }: Props) {
   // null until the field is edited: until then it shows the stored limit, which may load after the sheet opened.
   const [text, setText] = useState<string | null>(null)
   const shown = text ?? (value === null ? '' : asText(value, digits))
-  const minor = parseBudget(shown, digits)
-  const invalid = Number.isNaN(minor)
-  // Under the field: how the limit will read in the app, or what to type instead.
-  const note = invalid ? hint(digits) : minor === null ? null : `${formatMoney(minor, currency, locale)} a month`
+  const { minor, problem } = readBudget(shown, digits)
+  const invalid = problem !== null
+  // Under the field: what to type instead, or how the limit will read in the app.
+  const note = problem ?? (minor === null ? null : `${formatMoney(minor, currency, locale)} a month`)
 
   function edit(next: string) {
     setText(next)
-    onChange(parseBudget(next, digits))
+    onChange(readBudget(next, digits).minor)
   }
 
   return (
@@ -56,8 +56,13 @@ export function BudgetField({ value, currency, locale, onChange }: Props) {
           No budget
         </Button>
       </div>
-      {note === null ? null : (
-        <p id={noteId} className={`tnum mt-1 px-1 text-xs ${invalid ? 'text-danger' : 'text-muted'}`}>
+      {/* Two elements, so that the hint is a new alert when it appears (read out while typing) and the read-back is never one. */}
+      {note === null ? null : invalid ? (
+        <p key="problem" id={noteId} role="alert" className="tnum mt-1 px-1 text-xs text-danger">
+          {note}
+        </p>
+      ) : (
+        <p key="read-back" id={noteId} className="tnum mt-1 px-1 text-xs text-muted">
           {note}
         </p>
       )}
@@ -71,16 +76,17 @@ function asText(minor: number, digits: number): string {
 }
 
 /**
- * Empty text is no budget (null); anything but an amount above 0 in the currency's digits is NaN. A decimal comma counts
- * as the point: the decimal keypad shows the comma in regions that write one.
+ * What the text stands for: empty text is no budget (null); anything but an amount above 0 in the currency's digits is
+ * NaN, with the problem to show. A decimal comma counts as the point: the decimal keypad shows the comma in regions that
+ * write one.
  */
-function parseBudget(text: string, digits: number): number | null {
+function readBudget(text: string, digits: number): { minor: number | null; problem: string | null } {
   const trimmed = text.trim()
-  if (trimmed === '') return null
+  if (trimmed === '') return { minor: null, problem: null }
   const minor = parseMinor(trimmed.replace(',', '.'), digits)
-  return minor !== null && minor > 0 && minor <= MAX_BUDGET ? minor : NaN
-}
-
-function hint(digits: number): string {
-  return digits === 0 ? 'Enter a whole number like 500' : `Enter a number like 500 or 499.${'9'.repeat(digits)}`
+  if (minor === 0) return { minor: NaN, problem: 'Enter an amount above 0, or tap No budget' }
+  if (minor === null || minor > MAX_BUDGET) {
+    return { minor: NaN, problem: digits === 0 ? 'Enter a whole number like 500' : `Enter a number like 500 or 499.${'9'.repeat(digits)}` }
+  }
+  return { minor, problem: null }
 }

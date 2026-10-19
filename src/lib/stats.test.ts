@@ -1,8 +1,9 @@
 import { Timestamp } from 'firebase/firestore'
 import { describe, expect, it } from 'vitest'
 import {
-  categoryDeltas, categoryMonthlyTotals, groupByDay, monthlyTotals, orderCategoriesByRecency,
-  paceComparison, percentChange, previousMonthToDate, rangeMonths, suggestions, totalsByCategory, totalsByDay, totalsByKind,
+  activeExpenseBudgets, budgetProgress, budgetSummary, categoryDeltas, categoryMonthlyTotals, groupByDay, monthlyTotals,
+  orderCategoriesByRecency, paceComparison, percentChange, previousMonthToDate, rangeMonths, suggestions, totalsByCategory,
+  totalsByDay, totalsByKind, withBudgetRows, type CategoryTotal,
 } from './stats'
 import type { Category, Transaction } from './types'
 
@@ -264,5 +265,60 @@ describe('categoryMonthlyTotals', () => {
   it('counts income rows of the category and ignores months outside the list', () => {
     const txs = [tx({ amount: 100, categoryId: 'c', date: '2026-09-01', kind: 'income' }), tx({ amount: 9, categoryId: 'c', date: '2026-01-01' })]
     expect(categoryMonthlyTotals(txs, 'c', ['2026-09'])).toEqual([100])
+  })
+})
+
+describe('activeExpenseBudgets', () => {
+  it('keeps the limits of active expense categories only, in category order', () => {
+    const categories = [cat('coffee', 0), cat('gym', 1, { archived: true }), cat('food', 2), cat('salary', 3, { kind: 'income' }), cat('taxi', 4)]
+    // Stored in another order, with limits for an archived, an income and a removed category.
+    const budgets = new Map([['food', 10000], ['salary', 500000], ['removed', 300], ['gym', 2000], ['coffee', 500]])
+    expect([...activeExpenseBudgets(categories, budgets)]).toEqual([['coffee', 500], ['food', 10000]])
+  })
+  it('is empty without budgets', () => expect(activeExpenseBudgets([cat('coffee', 0)], new Map()).size).toBe(0))
+})
+
+describe('budgetProgress', () => {
+  // Spec §9: progress is the month total over the limit; the bar is full, and the limit reached, from 100 % on.
+  it.each([
+    [0, 50000, 0, false],
+    [25000, 50000, 0.5, false],
+    [49999, 50000, 0.99998, false],
+    [50000, 50000, 1, true],
+    [75000, 50000, 1, true],
+  ])('spent %i of %i is a ratio of %f, reached: %s', (spent, budget, ratio, over) => {
+    expect(budgetProgress(spent, budget)).toEqual({ ratio, over })
+  })
+})
+
+describe('withBudgetRows', () => {
+  const rows: CategoryTotal[] = [
+    { categoryId: 'food', total: 5000, count: 1, share: 0.87 },
+    { categoryId: 'coffee', total: 770, count: 2, share: 0.13 },
+  ]
+  it('adds an empty row for each budgeted category without spending, after the others, in the order of the budgets', () => {
+    const budgets = new Map([['taxi', 3000], ['coffee', 500], ['books', 2000]])
+    expect(withBudgetRows(rows, budgets)).toEqual([
+      ...rows,
+      { categoryId: 'taxi', total: 0, count: 0, share: 0 },
+      { categoryId: 'books', total: 0, count: 0, share: 0 },
+    ])
+    expect(rows).toHaveLength(2) // the rows it was given are left alone
+  })
+  it('adds nothing without budgets', () => expect(withBudgetRows(rows, new Map())).toEqual(rows))
+})
+
+describe('budgetSummary', () => {
+  it('adds up the spending of the budgeted rows against the sum of all the limits', () => {
+    const rows: CategoryTotal[] = [
+      { categoryId: 'food', total: 5000, count: 1, share: 0.6 }, // no budget: not counted
+      { categoryId: 'coffee', total: 770, count: 2, share: 0.4 },
+      { categoryId: 'taxi', total: 0, count: 0, share: 0 },
+    ]
+    // Books has a limit but no row at all: its limit still counts.
+    expect(budgetSummary(rows, new Map([['coffee', 500], ['taxi', 3000], ['books', 2000]]))).toEqual({ spent: 770, budget: 5500 })
+  })
+  it('is null without a budget, so no line is shown', () => {
+    expect(budgetSummary([{ categoryId: 'coffee', total: 770, count: 2, share: 1 }], new Map())).toBeNull()
   })
 })

@@ -21,7 +21,10 @@ import { useVisibilityTick } from '../hooks/useVisibilityTick'
 import { addMonths, currentMonth, isIsoMonth, monthLabel, monthOf, monthRange, todayIso } from '../lib/dates'
 import { formatMoney } from '../lib/money'
 import { readErrorText } from '../lib/readError'
-import { categoryDeltas, groupByDay, paceComparison, previousMonthToDate, totalsByCategory, totalsByDay, totalsByKind } from '../lib/stats'
+import {
+  activeExpenseBudgets, budgetSummary, categoryDeltas, groupByDay, paceComparison, previousMonthToDate, totalsByCategory, totalsByDay,
+  totalsByKind, withBudgetRows,
+} from '../lib/stats'
 import type { IsoDate, IsoMonth } from '../lib/types'
 
 /** A search of the month's day list: whether its field is open, what is typed in it and the kinds it keeps. */
@@ -75,8 +78,8 @@ export function HomePage() {
   // Recomputed on each return to the foreground and with each snapshot (an entry added after midnight with the
   // app left open), so "Today" and "Yesterday" move on after midnight.
   const today = useMemo(() => todayIso(), [tick, transactions])
-  const { byId } = useCategories()
-  const { budgets } = useBudgets()
+  const { categories, byId } = useCategories()
+  const { budgets, error: budgetsError } = useBudgets()
   const { settings, loading: settingsLoading } = useSettings()
   const { openAdd, openEdit } = useAddSheet()
   const navigate = useNavigate()
@@ -93,32 +96,11 @@ export function HomePage() {
   const currency = settings?.currency ?? 'USD'
   const locale = settings?.locale ?? null
   const totals = useMemo(() => totalsByKind(transactions), [transactions])
-  // The budgets that count (spec §9): those of active expense categories, in category order. An archived category's limit
-  // rests until it is unarchived, so it adds no empty row every month and nothing to the total.
-  const expenseBudgets = useMemo(() => {
-    const limits = new Map<string, number>()
-    for (const c of byId.values()) {
-      const limit = budgets.get(c.id)
-      if (limit !== undefined && c.kind === 'expense' && !c.archived) limits.set(c.id, limit)
-    }
-    return limits
-  }, [byId, budgets])
-  // A budgeted category with nothing spent yet still gets its (empty) row, after the others.
-  const breakdown = useMemo(() => {
-    const rows = totalsByCategory(transactions, 'expense')
-    const listed = new Set(rows.map((r) => r.categoryId))
-    for (const id of expenseBudgets.keys()) if (!listed.has(id)) rows.push({ categoryId: id, total: 0, count: 0, share: 0 })
-    return rows
-  }, [transactions, expenseBudgets])
-  // The summary's budget line: the shown month's spending in the budgeted categories against the sum of their limits.
-  const budgetTotals = useMemo(() => {
-    if (expenseBudgets.size === 0) return null
-    let spent = 0
-    let limit = 0
-    for (const r of breakdown) if (expenseBudgets.has(r.categoryId)) spent += r.total
-    for (const monthly of expenseBudgets.values()) limit += monthly
-    return { spent, limit }
-  }, [breakdown, expenseBudgets])
+  // The limits that count (those of active expense categories, see stats.ts), the breakdown with an empty row for each
+  // budgeted category with nothing spent yet, and the summary's line over the whole month.
+  const expenseBudgets = useMemo(() => activeExpenseBudgets(categories, budgets), [categories, budgets])
+  const breakdown = useMemo(() => withBudgetRows(totalsByCategory(transactions, 'expense'), expenseBudgets), [transactions, expenseBudgets])
+  const budgetTotals = useMemo(() => budgetSummary(breakdown, expenseBudgets), [breakdown, expenseBudgets])
   const needle = search.query.trim().toLowerCase()
   const filtering = needle !== '' || search.kind !== 'all'
   // The search narrows the day list only: the summary, the strip and the breakdown keep describing the whole month.
@@ -197,11 +179,14 @@ export function HomePage() {
             currency={currency}
             locale={locale}
             syncing={pending}
-            budgetLine={budgetTotals ? `Budgets: ${money(budgetTotals.spent)} of ${money(budgetTotals.limit)}` : undefined}
+            // Not while the month loads or after its read failed: a spend of 0 would show for a moment, or for good.
+            budgetLine={budgetTotals && !loading && !error ? `Budgets: ${money(budgetTotals.spent)} of ${money(budgetTotals.budget)}` : undefined}
           />
           {/* Like the strip and the breakdown, only for a month with entries: an empty month has its own empty state. */}
           {pace && !loading && transactions.length > 0 ? <PaceLine pace={pace} currency={currency} locale={locale} /> : null}
           {error ? <p className="mt-4 text-center text-sm text-danger">{readErrorText(error)}</p> : null}
+          {/* Unread budgets would otherwise look like none at all. */}
+          {budgetsError ? <p className="mt-4 text-center text-sm text-danger">{`Could not load budgets: ${readErrorText(budgetsError)}`}</p> : null}
           {loading ? (
             loadingLine
           ) : transactions.length === 0 ? (

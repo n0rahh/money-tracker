@@ -57,6 +57,8 @@ describe('BreakdownList', () => {
     const coffeeAt = (total: number): CategoryTotal[] => [{ categoryId: COFFEE.id, total, count: total > 0 ? 1 : 0, share: total > 0 ? 1 : 0 }]
     const rowOf = (name: string) => screen.getAllByRole('listitem').find((row) => row.textContent?.startsWith(name)) as HTMLElement
     const barOf = (name: string) => within(rowOf(name)).getByTestId('bar')
+    /** The line a bar sits on: the bar's track and, with deltas, the badge slot. */
+    const barLineOf = (name: string) => barOf(name).parentElement?.parentElement as HTMLElement
     /** A row's text with the no-break space Intl puts after a currency code read as a plain space. */
     const textOf = (row: HTMLElement) => row.textContent?.replaceAll('\u00a0', ' ')
 
@@ -74,18 +76,49 @@ describe('BreakdownList', () => {
       expect(bar.style.background).toBe(expense ? '' : 'rgb(251, 191, 36)') // else Coffee's own amber
     })
 
-    it('reads "<spent> of <budget>" in place of the share', () => {
+    it('reads "<spent> of <budget>" on a line of its own in place of the share', () => {
       render(<BreakdownList rows={coffeeAt(32000)} byId={byId} currency="PLN" locale="en" budgets={budgets} />)
       const text = screen.getByText('PLN 320.00 of PLN 500.00')
-      expect(text).toHaveClass('tnum', 'text-xs', 'text-muted')
+      expect(text).toHaveClass('tnum', 'block', 'text-xs', 'text-muted')
       expect(textOf(rowOf('Coffee'))).toBe('CoffeePLN 320.00PLN 320.00 of PLN 500.00') // the amount stays, the share goes
+      expect(barLineOf('Coffee')).not.toContainElement(text) // under the bar, which keeps its whole line
       expect(barOf('Coffee').style.width).toBe('64%')
+    })
+
+    it.each([
+      { pct: '150 %', total: 75000, text: 'PLN 750.00 of PLN 500.00 · PLN 250.00 over' },
+      { pct: '100 %', total: 50000, text: 'PLN 500.00 of PLN 500.00 · PLN 0.00 over' },
+    ])('says by how much a row at $pct is over its budget, to assistive tech too', ({ total, text }) => {
+      render(<BreakdownList rows={coffeeAt(total)} byId={byId} currency="PLN" locale="en" budgets={budgets} />)
+      const line = screen.getByText(text) // its own text; the sr-only part is a child of it
+      expect(within(line).getByText(', over budget')).toHaveClass('sr-only')
+      expect(textOf(line)).toBe(`${text}, over budget`)
+    })
+
+    it('says nothing about "over" while a row is under its budget', () => {
+      render(<BreakdownList rows={coffeeAt(49999)} byId={byId} currency="PLN" locale="en" budgets={budgets} />)
+      expect(textOf(screen.getByText('PLN 499.99 of PLN 500.00'))).toBe('PLN 499.99 of PLN 500.00')
+      expect(screen.queryByText(/over/)).not.toBeInTheDocument()
     })
 
     it('shows a budget with nothing spent yet as an empty bar', () => {
       render(<BreakdownList rows={coffeeAt(0)} byId={byId} currency="PLN" locale="en" budgets={budgets} />)
       expect(screen.getByText('PLN 0.00 of PLN 500.00')).toBeInTheDocument()
       expect(barOf('Coffee').style.width).toBe('0%')
+    })
+
+    it('keeps every amount in one column: a budgeted row leaves the share slot empty', () => {
+      const rows: CategoryTotal[] = [
+        { categoryId: GROCERIES.id, total: 80000, count: 4, share: 0.714 },
+        { categoryId: COFFEE.id, total: 32000, count: 9, share: 0.286 },
+      ]
+      render(<BreakdownList rows={rows} byId={all} currency="PLN" locale="en" budgets={budgets} />)
+      const slotAfter = (amount: string) => screen.getByText(amount).nextElementSibling
+      expect(slotAfter('PLN 800.00')).toHaveClass('w-10')
+      expect(slotAfter('PLN 800.00')).toHaveTextContent('71%')
+      expect(slotAfter('PLN 320.00')).toHaveClass('w-10')
+      expect(slotAfter('PLN 320.00')).toBeEmptyDOMElement()
+      expect(slotAfter('PLN 320.00')).toHaveAttribute('aria-hidden', 'true')
     })
 
     it('keeps the share and the scale of the largest row for rows without a budget', () => {
@@ -106,9 +139,10 @@ describe('BreakdownList', () => {
       expect(barOf('Taxi').style.background).toBe('rgb(250, 204, 21)') // yellow
     })
 
-    it('puts the budget text before the badge of a row that has one', () => {
+    it('keeps the bar line of a budgeted row as it is for any other: the bar and the badge, the budget text under them', () => {
       render(<BreakdownList rows={coffeeAt(32000)} byId={byId} currency="PLN" locale="en" budgets={budgets} deltas={deltas} />)
-      expect(textOf(rowOf('Coffee'))).toBe('CoffeePLN 320.00PLN 320.00 of PLN 500.00−49 %')
+      expect(barLineOf('Coffee').textContent).toBe('−49 %')
+      expect(textOf(rowOf('Coffee'))).toBe('CoffeePLN 320.00−49 %PLN 320.00 of PLN 500.00')
     })
   })
 })

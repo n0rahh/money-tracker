@@ -24,8 +24,10 @@ const { subscribeTransactionsInRange, useSettings, useBudgets } = vi.hoisted(() 
 }))
 // The real useTransactions runs on top of this, so its reset on a month change is under test too.
 vi.mock('../lib/firestore', () => ({ subscribeTransactionsInRange }))
+/** Built once, as the real hook memoises it: Home's memos depend on its identity. Read lazily by the mock below. */
+const BY_ID = new Map(CATEGORIES.map((c) => [c.id, c]))
 vi.mock('../hooks/useCategories', () => ({
-  useCategories: () => ({ categories: CATEGORIES, byId: new Map(CATEGORIES.map((c) => [c.id, c])), loading: false, error: null }),
+  useCategories: () => ({ categories: CATEGORIES, byId: BY_ID, loading: false, error: null }),
 }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useBudgets', () => ({ useBudgets }))
@@ -379,7 +381,7 @@ describe('HomePage', () => {
     }
     const paceLine = () => screen.queryByText(/ by day /)
     const breakdown = () => screen.getByRole('heading', { name: 'By category' }).closest('section') as HTMLElement
-    /** Each breakdown row's text: name, amount, share and, when there is one, the badge. */
+    /** Each breakdown row's text: name, amount, share and, when there is one, the badge; a budgeted row ends with its "of" line instead of a share. */
     const breakdownRows = () => within(breakdown()).getAllByRole('listitem').map((row) => row.textContent)
 
     beforeEach(() => {
@@ -616,11 +618,50 @@ describe('HomePage', () => {
         render(page())
         deliver(OCTOBER.filter((t) => t.categoryId !== GROCERIES.id))
         // Coffee is past its €5.00; nothing went on groceries yet. The archived gym and the income category get no row.
-        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00', 'Groceries€0.00€0.00 of €100.00'])
+        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00 · €2.70 over, over budget', 'Groceries€0.00€0.00 of €100.00'])
         const bars = within(breakdown()).getAllByTestId('bar')
         expect(bars.map((bar) => bar.style.width)).toEqual(['100%', '0%'])
         expect(bars[0]).toHaveClass('bg-expense')
         expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €105\.00$/)
+      })
+
+      it('picks up budgets that arrive after the month, empty rows included', () => {
+        const { rerender } = render(page())
+        deliver(OCTOBER.filter((t) => t.categoryId !== GROCERIES.id))
+        expect(budgetLine()).not.toBeInTheDocument()
+        expect(breakdownRows()).toEqual(['Coffee€7.70100%'])
+        withBudgets([[COFFEE.id, 500], [GROCERIES.id, 10000]])
+        rerender(page())
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €105\.00$/)
+        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00 · €2.70 over, over budget', 'Groceries€0.00€0.00 of €100.00'])
+      })
+
+      it('puts several empty budgeted rows after the others, in category order', () => {
+        withBudgets([[GROCERIES.id, 10000], [COFFEE.id, 500]]) // stored in the other order on purpose
+        render(page())
+        deliver([entry('o9', GYM, '2026-10-02', 100, '')])
+        expect(breakdownRows()).toEqual(['Gym€1.00100%', 'Coffee€0.00€0.00 of €5.00', 'Groceries€0.00€0.00 of €100.00'])
+      })
+
+      it('shows no line while the month loads or when it cannot be read, rather than a spend of 0', () => {
+        withBudgets([[COFFEE.id, 1000]])
+        render(page())
+        expect(screen.getByText('Loading…')).toBeInTheDocument()
+        expect(budgetLine()).not.toBeInTheDocument()
+        deliver(OCTOBER)
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €10\.00$/)
+        fail(new FirebaseError('permission-denied', 'Missing or insufficient permissions.'))
+        expect(budgetLine()).not.toBeInTheDocument()
+      })
+
+      it('says when the budgets cannot be read, under the summary like a failed month', () => {
+        useBudgets.mockReturnValue({ budgets: new Map(), loading: false, error: new FirebaseError('unavailable', 'Failed to get documents from cache.') })
+        render(page())
+        deliver(OCTOBER)
+        const message = screen.getByText("Could not load budgets: You're offline and this data isn't cached yet")
+        expect(message).toHaveClass('text-danger')
+        expect(summary().compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(breakdownRows()).toEqual(['Groceries€50.0087%', 'Coffee€7.7013%']) // the month itself still shows
       })
 
       it('changes nothing without a budget of an active expense category', () => {

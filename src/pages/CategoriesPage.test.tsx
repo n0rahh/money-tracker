@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FirebaseError } from 'firebase/app'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
 import type { Category } from '../lib/types'
 import { CategoriesPage } from './CategoriesPage'
@@ -117,5 +118,45 @@ describe('CategoriesPage', () => {
     expect(field).toHaveAccessibleDescription('PLN\u00a0150.00 a month') // Intl's no-break space after the code
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(setBudget.mock.calls).toEqual([['c2', 15000]])
+  })
+
+  it('reads a typed budget back in the locale of the settings', async () => {
+    useSettings.mockReturnValue({ settings: { currency: 'PLN', locale: 'de' }, loading: false, fromCache: false, error: null })
+    const user = userEvent.setup()
+    page()
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    const field = screen.getByRole('textbox', { name: 'Monthly budget' })
+    await user.clear(field)
+    await user.type(field, '1500')
+    expect(field).toHaveAccessibleDescription('1.500,00\u00a0PLN a month')
+  })
+
+  describe('when the budgets cannot be read', () => {
+    const DENIED = "Could not load budgets: You don't have access to this data (signed in with the wrong account?)"
+    const failWith = (error: Error) => useBudgets.mockReturnValue({ budgets: new Map(), loading: false, error })
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }) // the toast's 3 s
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('says so in a toast, once per failure', () => {
+      const denied = new FirebaseError('permission-denied', 'Missing or insufficient permissions.')
+      failWith(denied)
+      const { rerender } = page()
+      expect(screen.getByRole('status')).toHaveTextContent(DENIED)
+
+      act(() => vi.advanceTimersByTime(3000))
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      rerender(tree()) // the same failure, rendered again: no second toast
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+      failWith(new FirebaseError('unavailable', 'Failed to get documents from cache.'))
+      rerender(tree())
+      expect(screen.getByRole('status')).toHaveTextContent("Could not load budgets: You're offline and this data isn't cached yet")
+    })
   })
 })
