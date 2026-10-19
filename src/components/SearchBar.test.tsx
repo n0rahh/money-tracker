@@ -1,18 +1,31 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { createRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { SearchBar } from './SearchBar'
+import { SearchBar, type SearchBarHandle } from './SearchBar'
 
 const field = () => screen.getByRole('searchbox', { name: 'Search notes and categories' })
 const clear = () => screen.queryByRole('button', { name: 'Clear search' })
 
 describe('SearchBar', () => {
-  it('is a 44 px search field for notes and categories that takes the focus as it appears', () => {
+  it('is a 44 px search field for notes and categories, with a search key and nothing that rewrites what is typed', () => {
     render(<SearchBar value="" onChange={vi.fn()} kind="all" onKindChange={vi.fn()} />)
     expect(screen.getByRole('search')).toContainElement(field())
     expect(field()).toHaveAttribute('type', 'search')
     expect(field()).toHaveAttribute('placeholder', 'Search notes and categories')
     expect(field()).toHaveClass('h-11')
+    // On iOS: a key labelled "search", and no autocorrection, capital or spell check turning "zabka" into something else.
+    expect(field()).toHaveAttribute('enterkeyhint', 'search')
+    expect(field()).toHaveAttribute('autocorrect', 'off')
+    expect(field()).toHaveAttribute('autocapitalize', 'none')
+    expect(field()).toHaveAttribute('spellcheck', 'false')
+  })
+
+  it('leaves the focus where it is as it appears, and lets the caller focus its field', () => {
+    const ref = createRef<SearchBarHandle>()
+    render(<SearchBar ref={ref} value="latte" onChange={vi.fn()} kind="all" onKindChange={vi.fn()} />)
+    expect(field()).not.toHaveFocus() // a bar that comes back by itself (an undone delete) must not grab the focus
+    ref.current?.focus()
     expect(field()).toHaveFocus()
   })
 
@@ -40,6 +53,7 @@ describe('SearchBar', () => {
   it('puts the keyboard away on the search key', async () => {
     const user = userEvent.setup()
     render(<SearchBar value="latte" onChange={vi.fn()} kind="all" onKindChange={vi.fn()} />)
+    await user.click(field())
     await user.keyboard('{Enter}')
     expect(field()).not.toHaveFocus()
   })

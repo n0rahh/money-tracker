@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MonthPickerSheet } from './MonthPickerSheet'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -77,6 +77,28 @@ describe('MonthPickerSheet', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     rerender(<MonthPickerSheet open month="2024-03" {...props} />)
     expect(pressed(monthsOf('2024'))).toEqual(['March'])
+  })
+
+  describe('with the clock on 17 October 2026', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("marks this month as today's, in its own year only, pressed or not", async () => {
+      vi.useFakeTimers({ toFake: ['Date'] }) // only the clock: user-event waits on real timers
+      vi.setSystemTime(new Date(2026, 9, 17, 12, 0))
+      const user = userEvent.setup()
+      const today = (year: string) => monthsOf(year).filter((b) => b.getAttribute('aria-current') === 'date').map((b) => b.textContent)
+      const { rerender } = setup('2026-07')
+      expect(today('2026')).toEqual(['October'])
+      await user.click(screen.getByRole('button', { name: 'Previous year' }))
+      expect(today('2025')).toEqual([])
+
+      rerender(<MonthPickerSheet open={false} month="2026-10" locale="en" onSelect={vi.fn()} onClose={vi.fn()} />)
+      rerender(<MonthPickerSheet open month="2026-10" locale="en" onSelect={vi.fn()} onClose={vi.fn()} />)
+      expect(today('2026')).toEqual(['October']) // also when it is the month on show
+      expect(pressed(monthsOf('2026'))).toEqual(['October'])
+    })
   })
 
   it('names the months in the language of the settings', () => {

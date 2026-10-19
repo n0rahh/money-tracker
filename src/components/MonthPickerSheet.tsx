@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useId, useState } from 'react'
-import { addMonths, monthsBetween } from '../lib/dates'
+import { addMonths, currentMonth, monthsBetween } from '../lib/dates'
 import type { IsoMonth } from '../lib/types'
 import { Sheet } from './Sheet'
 
@@ -38,6 +38,7 @@ function YearOfMonths({ month, locale, onPick }: { month: IsoMonth; locale: stri
   const months = monthsBetween(january, addMonths(january, 11))
   const year = Number(january.slice(0, 4))
   const monthName = new Intl.DateTimeFormat(locale ?? undefined, { month: 'long' })
+  const thisMonth = currentMonth()
   const arrow = 'flex size-11 items-center justify-center rounded-full bg-surface-2 text-text'
   return (
     <>
@@ -59,10 +60,15 @@ function YearOfMonths({ month, locale, onPick }: { month: IsoMonth; locale: stri
             key={m}
             type="button"
             aria-pressed={m === month}
+            aria-current={m === thisMonth ? 'date' : undefined}
             onClick={() => onPick(m)}
-            className={`min-h-11 rounded-chip px-2 text-[15px] transition active:scale-[0.97] ${m === month ? 'bg-accent font-semibold text-accent-ink' : 'bg-surface-2 text-text'}`}
+            className={`relative min-h-11 rounded-chip px-2 text-[15px] transition active:scale-[0.97] ${m === month ? 'bg-accent font-semibold text-accent-ink' : 'bg-surface-2 text-text'}`}
           >
             {monthName.format(new Date(year, i, 1))}
+            {/* This month: a dot under the name, out of the text's way, dark on the pressed lime and lime elsewhere. */}
+            {m === thisMonth ? (
+              <span aria-hidden="true" className={`absolute bottom-1 left-1/2 size-1.5 -translate-x-1/2 rounded-full ${m === month ? 'bg-accent-ink' : 'bg-accent'}`} />
+            ) : null}
           </button>
         ))}
       </div>

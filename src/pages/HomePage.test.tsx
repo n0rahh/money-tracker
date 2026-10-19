@@ -712,6 +712,15 @@ describe('HomePage', () => {
         expect(monthButton()).toHaveFocus() // back where the picker was opened from
       })
 
+      it('names the months in the language of the settings', async () => {
+        const user = userEvent.setup()
+        useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'de' }, loading: false, fromCache: false, error: null })
+        render(page())
+        await user.click(monthButton())
+        expect(monthButton()).toHaveAccessibleName('Oktober 2026')
+        expect(picker().getByRole('button', { name: 'Oktober' })).toHaveAttribute('aria-pressed', 'true')
+      })
+
       it('reaches the months of other years, the years ahead included', async () => {
         const user = userEvent.setup()
         render(page('/?month=2026-07'))
@@ -761,9 +770,15 @@ describe('HomePage', () => {
         expect(button.compareDocumentPosition(screen.getByText('Spent')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy() // in the header
         expect(button).toHaveAttribute('aria-expanded', 'false')
         expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+        // Closed, a quiet icon rather than a third grey circle beside the month arrows; open, a filled circle.
+        expect(button).toHaveClass('text-muted')
+        expect(button).not.toHaveClass('bg-surface-2')
+        // The dimming of a disabled toggle waits 150 ms, so a month served from the cache does not blink it (no CSS in jsdom).
+        expect(button).toHaveClass('disabled:delay-150')
 
         await user.click(button)
         expect(button).toHaveAttribute('aria-expanded', 'true')
+        expect(button).toHaveClass('bg-surface-2', 'text-accent')
         expect(field()).toHaveFocus()
         expect(document.getElementById(button.getAttribute('aria-controls') ?? '')).toContainElement(field())
         expect(entries()).toEqual(OCTOBER_ENTRIES) // nothing typed yet: the whole month
@@ -794,14 +809,14 @@ describe('HomePage', () => {
         await user.click(searchButton())
         await user.type(field(), '  LATTE ')
         expect(entries()).toEqual(['Coffeeoat latte€4.20'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry · €4\.20$/)
         // A day totals its matching entries only: the groceries of the 10th are not on show.
         const day = screen.getByRole('heading', { level: 3, name: 'Sat, Oct 10' }).closest('[id^="day-"]') as HTMLElement
         expect(within(day).getByText('−€4.20')).toBeInTheDocument()
 
         deliver([...OCTOBER, entry('o5', COFFEE, '2026-10-17', 450, 'Iced LATTE')]) // logged meanwhile on another device
         expect(entries()).toEqual(['CoffeeIced LATTE€4.50', 'Coffeeoat latte€4.20'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries · €8\.70$/)
       })
 
       it('finds entries by the name of their category as the list shows it, archived or removed', async () => {
@@ -815,7 +830,10 @@ describe('HomePage', () => {
         await user.click(searchButton())
         await user.type(field(), 'coffee')
         expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries · €7\.70$/)
+        await user.clear(field())
+        await user.type(field(), 'ffee') // inside the name, not at its start
+        expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20'])
         await user.clear(field())
         await user.type(field(), 'gym')
         expect(entries()).toEqual(['Gymmonthly pass€40.00'])
@@ -831,16 +849,77 @@ describe('HomePage', () => {
         await user.click(searchButton())
         await user.click(kind('Income'))
         expect(entries()).toEqual(['Salary+€3,000.00'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry · €3,000\.00$/)
         await user.click(kind('Expenses'))
         expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20', 'Groceriesweekly shop€50.00'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^3 matching entries$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^3 matching entries · €57\.70$/)
         await user.type(field(), 'shop')
         expect(entries()).toEqual(['Groceriesweekly shop€50.00'])
         await user.click(kind('Income'))
         expect(entries()).toEqual([])
         await user.click(kind('All'))
         expect(entries()).toEqual(['Groceriesweekly shop€50.00'])
+      })
+
+      it('adds up the matching entries of each kind apart in the caption, never as a net', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), 'a') // flat white, oat latte, and the salary by its category's name
+        expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20', 'Salary+€3,000.00'])
+        expect(screen.getByRole('status')).toHaveTextContent(/^3 matching entries · −€7\.70 \+€3,000\.00$/)
+      })
+
+      it('finds entries typed without their accents, and the other way round', async () => {
+        const user = userEvent.setup()
+        render(page())
+        deliver([...OCTOBER, entry('o5', GROCERIES, '2026-10-12', 1290, 'Żabka'), entry('o6', COFFEE, '2026-10-13', 380, 'Café Müller')])
+        await user.click(searchButton())
+        await user.type(field(), 'zabka')
+        expect(entries()).toEqual(['GroceriesŻabka€12.90'])
+        await user.clear(field())
+        await user.type(field(), 'cafe muller')
+        expect(entries()).toEqual(['CoffeeCafé Müller€3.80'])
+        await user.clear(field())
+        await user.type(field(), 'GROCÉRIES')
+        expect(entries()).toEqual(['GroceriesŻabka€12.90', 'Groceriesweekly shop€50.00'])
+      })
+
+      it('keeps the spaces typed in the query: a phrase finds the note it is part of', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), 'weekly shop ')
+        expect(field()).toHaveValue('weekly shop ')
+        expect(entries()).toEqual(['Groceriesweekly shop€50.00'])
+      })
+
+      it('takes a query of spaces for no query', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), '   ')
+        expect(entries()).toEqual(OCTOBER_ENTRIES)
+        expect(screen.getByRole('status')).toBeEmptyDOMElement() // nothing is filtered, so nothing is counted
+      })
+
+      it('leaves the focus alone when the bar comes back by itself (an undone delete brings the month back)', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), 'latte')
+        deliver([]) // the last entries went, so the bar goes with the list
+        expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+        const monthLabel = within(screen.getByRole('heading', { level: 1 })).getByRole('button')
+        monthLabel.focus()
+
+        deliver(OCTOBER) // undone
+        expect(field()).toHaveValue('latte')
+        expect(monthLabel).toHaveFocus()
       })
 
       it('says "No matches" when nothing matches', async () => {

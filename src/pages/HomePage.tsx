@@ -9,7 +9,7 @@ import { EmptyState } from '../components/EmptyState'
 import { MonthPickerSheet } from '../components/MonthPickerSheet'
 import { MonthSwitcher } from '../components/MonthSwitcher'
 import { PaceLine } from '../components/PaceLine'
-import { SearchBar, type KindFilter } from '../components/SearchBar'
+import { SearchBar, type SearchBarHandle } from '../components/SearchBar'
 import { SummaryCard } from '../components/SummaryCard'
 import { TransactionList } from '../components/TransactionList'
 import { useAddSheet } from '../context/AddSheetContext'
@@ -21,6 +21,7 @@ import { useVisibilityTick } from '../hooks/useVisibilityTick'
 import { addMonths, currentMonth, isIsoMonth, monthLabel, monthOf, monthRange, todayIso } from '../lib/dates'
 import { formatMoney } from '../lib/money'
 import { readErrorText } from '../lib/readError'
+import { matchesSearch, matchingCaption, searchNeedle, type KindFilter } from '../lib/search'
 import {
   activeExpenseBudgets, budgetSummary, categoryDeltas, groupByDay, paceComparison, previousMonthToDate, totalsByCategory, totalsByDay,
   totalsByKind, withBudgetRows,
@@ -70,6 +71,7 @@ export function HomePage() {
   }
   const searchId = useId()
   const searchRef = useRef<HTMLDivElement>(null)
+  const fieldRef = useRef<SearchBarHandle>(null)
   const { from, to } = monthRange(month)
   const { transactions, loading, pending, error } = useTransactions(from, to)
   // The month before the shown one, for the pace line and the change per category.
@@ -101,19 +103,20 @@ export function HomePage() {
   const expenseBudgets = useMemo(() => activeExpenseBudgets(categories, budgets), [categories, budgets])
   const breakdown = useMemo(() => withBudgetRows(totalsByCategory(transactions, 'expense'), expenseBudgets), [transactions, expenseBudgets])
   const budgetTotals = useMemo(() => budgetSummary(breakdown, expenseBudgets), [breakdown, expenseBudgets])
-  const needle = search.query.trim().toLowerCase()
+  const needle = searchNeedle(search.query)
   const filtering = needle !== '' || search.kind !== 'all'
   // The search narrows the day list only: the summary, the strip and the breakdown keep describing the whole month.
-  const listed = useMemo(() => {
-    if (!filtering) return transactions
-    return transactions.filter(
-      (t) =>
-        (search.kind === 'all' || t.kind === search.kind) &&
-        // The category by the name the list shows: "Uncategorized" for one removed by hand.
-        (t.note.toLowerCase().includes(needle) || (byId.get(t.categoryId)?.name ?? 'Uncategorized').toLowerCase().includes(needle)),
-    )
-  }, [transactions, byId, filtering, needle, search.kind])
+  const listed = useMemo(
+    () =>
+      filtering
+        ? // The category by the name the list shows: "Uncategorized" for one removed by hand.
+          transactions.filter((t) => matchesSearch(t, byId.get(t.categoryId)?.name ?? 'Uncategorized', needle, search.kind))
+        : transactions,
+    [transactions, byId, filtering, needle, search.kind],
+  )
   const groups = useMemo(() => groupByDay(listed), [listed])
+  // What the matches add up to, by kind, for the caption.
+  const listedTotals = useMemo(() => totalsByKind(listed), [listed])
   const days = useMemo(() => totalsByDay(transactions, month, 'expense'), [transactions, month])
   // Nothing is compared until last month's rows are in: before that (or after its query failed) every category would read as "new".
   const lastMonth = previous.loading || previous.error ? null : previous.transactions
@@ -140,10 +143,12 @@ export function HomePage() {
       setSearch(NO_SEARCH) // closing drops the filter too: no list stays narrowed by a field out of sight
       return
     }
-    // Rendered within the tap, so the field takes the focus inside it (iOS raises the keyboard only then). Then the field goes
+    // Rendered within the tap, so that the field can take the focus inside it (iOS raises the keyboard only then). Focused
+    // here, on the tap, and not as the bar mounts: a bar that comes back by itself leaves the focus alone. Then the field goes
     // to the top of the screen with the days under it; at once, not smoothly: on iOS the keyboard coming up scrolls the focused
     // field too, which would cut a smooth scroll short.
     flushSync(() => setSearch({ ...NO_SEARCH, open: true }))
+    fieldRef.current?.focus()
     searchRef.current?.scrollIntoView?.({ block: 'start' })
   }
 
@@ -155,8 +160,9 @@ export function HomePage() {
         <div className="min-w-0 flex-1">
           <MonthSwitcher month={month} locale={locale} onChange={changeMonth} onOpenPicker={() => setPickerOpen(true)} />
         </div>
-        {/* Dimmed while there is no list to search (Home is loading, or the month has no entries); the fade hides the frame or
-            two of loading that a switch to a cached month takes. */}
+        {/* A quiet icon while closed, so that it does not read as a third month arrow; a filled circle while open. Dimmed while
+            there is no list to search (Home is loading, or the month has no entries), 150 ms late: the tens of milliseconds a
+            month takes to come from the cache never blink it. */}
         <button
           type="button"
           aria-label="Search"
@@ -164,7 +170,7 @@ export function HomePage() {
           aria-controls={searchShown ? searchId : undefined}
           disabled={!searchable}
           onClick={toggleSearch}
-          className={`flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-2 transition disabled:opacity-40 ${searchShown ? 'text-accent' : 'text-text'}`}
+          className={`flex size-11 shrink-0 items-center justify-center rounded-full transition disabled:opacity-40 disabled:delay-150 ${searchShown ? 'bg-surface-2 text-accent' : 'text-muted'}`}
         >
           <Search size={20} />
         </button>
@@ -219,6 +225,7 @@ export function HomePage() {
                 // so that a list narrowed to nothing does not shorten the page and pull the field down behind the keyboard.
                 <div ref={searchRef} id={searchId} className="mt-4 min-h-dvh scroll-mt-[max(0.5rem,env(safe-area-inset-top))]">
                   <SearchBar
+                    ref={fieldRef}
                     value={search.query}
                     onChange={(query) => setSearch((s) => ({ ...s, query }))}
                     kind={search.kind}
@@ -229,7 +236,7 @@ export function HomePage() {
                     {!filtering ? null : listed.length === 0 ? (
                       <p className="mt-6 text-center text-sm text-muted">No matches</p>
                     ) : (
-                      <p className="mt-3 px-1 text-[13px] text-muted">{`${listed.length} matching ${listed.length === 1 ? 'entry' : 'entries'}`}</p>
+                      <p className="tnum mt-3 px-1 text-[13px] text-muted">{matchingCaption(listed.length, listedTotals, money)}</p>
                     )}
                   </div>
                   {list}
