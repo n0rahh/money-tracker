@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../context/ToastContext'
 import { CATEGORY_COLORS, COLOR_KEYS, type ColorKey } from '../lib/categoryColors'
 import { FALLBACK_ICON, type IconKey } from '../lib/categoryIcons'
-import { createCategory, swapCategoryOrder, updateCategory } from '../lib/firestore'
+import { createCategory, setBudget, swapCategoryOrder, updateCategory } from '../lib/firestore'
 import type { Category, Kind } from '../lib/types'
+import { BudgetField } from './BudgetField'
 import { Button } from './Button'
 import { CategoryChip } from './CategoryChip'
 import { ColorPicker } from './ColorPicker'
@@ -19,17 +20,26 @@ type Props = {
   siblings: Category[]
   /** One past the highest `order` of `kind`, archived included: where new and unarchived categories go. */
   nextOrder: number
+  /** The edited category's monthly limit in minor units, or null for none (always null for a new category). */
+  budget: number | null
+  currency: string
+  locale: string | null
   onClose: () => void
 }
 
-export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, onClose }: Props) {
+export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, budget, currency, locale, onClose }: Props) {
   const { showToast } = useToast()
   const [name, setName] = useState(editing?.name ?? '')
   const [icon, setIcon] = useState<IconKey>(editing?.icon ?? FALLBACK_ICON)
   const [color, setColor] = useState<ColorKey>(editing?.color ?? COLOR_KEYS[0])
+  // undefined until the budget field is edited, so an untouched field writes nothing, even when the stored limit loads
+  // after the sheet opened; NaN while its text is not an amount.
+  const [budgetDraft, setBudgetDraft] = useState<number | null | undefined>(undefined)
 
   const trimmed = name.trim()
-  const canSave = trimmed.length > 0 && trimmed.length <= 40
+  const canSave = trimmed.length > 0 && trimmed.length <= 40 && !Number.isNaN(budgetDraft)
+  // Budgets are spending limits (spec §9): income categories have none.
+  const offersBudget = (editing?.kind ?? kind) === 'expense'
   const preview: Category = { id: editing?.id ?? 'preview', name: trimmed || 'Preview', icon, color, kind, order: 0, archived: false }
   const current = editing ? (siblings.find((c) => c.id === editing.id) ?? editing) : null
   const index = current ? siblings.findIndex((c) => c.id === current.id) : -1
@@ -37,10 +47,15 @@ export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, on
 
   function save() {
     if (!canSave) return
+    const budgetChanged = budgetDraft !== undefined && budgetDraft !== budget
     if (editing) {
       updateCategory(editing.id, { name: trimmed, icon, color }).catch(fail)
+      if (budgetChanged) setBudget(editing.id, budgetDraft).catch(fail)
     } else {
-      createCategory({ name: trimmed, icon, color, kind, order: nextOrder, archived: false }).done.catch(fail)
+      const created = createCategory({ name: trimmed, icon, color, kind, order: nextOrder, archived: false })
+      created.done.catch(fail)
+      // The new id is known at once, so the budget goes out alongside the category instead of after its write.
+      if (budgetChanged) setBudget(created.id, budgetDraft).catch(fail)
     }
     onClose()
   }
@@ -81,6 +96,7 @@ export function CategoryEditSheet({ open, kind, editing, siblings, nextOrder, on
           aria-label="Name"
           className="min-h-11 rounded-chip border border-border bg-surface-2 px-3 text-text placeholder:text-muted"
         />
+        {offersBudget ? <BudgetField value={budget} currency={currency} locale={locale} onChange={setBudgetDraft} /> : null}
         <ColorPicker value={color} onChange={setColor} />
         <IconPicker value={icon} onChange={setIcon} color={CATEGORY_COLORS[color]} />
         {editing ? (

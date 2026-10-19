@@ -4,13 +4,17 @@ import { Button } from '../components/Button'
 import { CategoryIcon } from '../components/CategoryChip'
 import { CategoryEditSheet } from '../components/CategoryEditSheet'
 import { SegmentedControl } from '../components/SegmentedControl'
+import { useBudgets } from '../hooks/useBudgets'
 import { useCategories } from '../hooks/useCategories'
+import { useSettings } from '../hooks/useSettings'
 import type { Category, Kind } from '../lib/types'
 
 type SheetState = { open: boolean; editing: Category | null; nonce: number }
 
 export function CategoriesPage() {
   const { categories, loading } = useCategories()
+  const { budgets } = useBudgets()
+  const { settings } = useSettings()
   const [kind, setKind] = useState<Kind>('expense')
   const [sheet, setSheet] = useState<SheetState>({ open: false, editing: null, nonce: 0 })
 
@@ -55,6 +59,10 @@ export function CategoriesPage() {
         editing={sheet.editing}
         siblings={active}
         nextOrder={nextOrder}
+        budget={sheet.editing ? (budgets.get(sheet.editing.id) ?? null) : null}
+        // The fallback only applies to a genuinely missing settings document (first run), as on every page.
+        currency={settings?.currency ?? 'USD'}
+        locale={settings?.locale ?? null}
         onClose={close}
       />
     </>

@@ -17,9 +17,10 @@ const SALARY: Category = { id: 'c4', name: 'Salary', icon: 'Banknote', color: 'l
 const CATEGORIES = [COFFEE, GYM, GROCERIES, SALARY]
 const FLAT_WHITE: Transaction = { id: 't1', kind: 'expense', amount: 350, categoryId: 'c1', note: 'flat white', date: todayIso(), at: Timestamp.now(), source: 'app' }
 
-const { subscribeTransactionsInRange, useSettings } = vi.hoisted(() => ({
+const { subscribeTransactionsInRange, useSettings, useBudgets } = vi.hoisted(() => ({
   subscribeTransactionsInRange: vi.fn(),
   useSettings: vi.fn(),
+  useBudgets: vi.fn(),
 }))
 // The real useTransactions runs on top of this, so its reset on a month change is under test too.
 vi.mock('../lib/firestore', () => ({ subscribeTransactionsInRange }))
@@ -27,6 +28,7 @@ vi.mock('../hooks/useCategories', () => ({
   useCategories: () => ({ categories: CATEGORIES, byId: new Map(CATEGORIES.map((c) => [c.id, c])), loading: false, error: null }),
 }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
+vi.mock('../hooks/useBudgets', () => ({ useBudgets }))
 
 /** Stands in for the category page and shows the id it was opened with. */
 function CategoryStub() {
@@ -88,10 +90,13 @@ const listening = () =>
     .map(([from, to]) => ({ from, to }))
     .sort((a, b) => a.from.localeCompare(b.from))
 const withSettingsLoaded = () => useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null })
+/** The monthly limits by category id, as useBudgets delivers them. */
+const withBudgets = (limits: [string, number][] = []) => useBudgets.mockReturnValue({ budgets: new Map(limits), loading: false, error: null })
 
 beforeEach(() => {
   vi.clearAllMocks()
   subscribeTransactionsInRange.mockImplementation(() => vi.fn()) // each subscription gets its own unsubscribe spy
+  withBudgets() // none, unless a test sets some
 })
 
 describe('HomePage', () => {
@@ -562,6 +567,59 @@ describe('HomePage', () => {
         showBothMonths()
         await tapStrip(95)
         expect(scrollIntoView.mock.calls).toEqual([[{ behavior: 'auto', block: 'start' }]])
+      })
+    })
+
+    describe('budgets', () => {
+      const summary = () => screen.getByText('Spent').closest('section') as HTMLElement
+      const budgetLine = () => within(summary()).queryByText(/^Budgets: /)
+
+      it('adds up the budgeted categories of the month in a muted line under the hero', () => {
+        // Coffee's limit counts; those of an income category and of an archived one do not.
+        withBudgets([[COFFEE.id, 1000], [SALARY.id, 500000], [GYM.id, 2000]])
+        render(page())
+        showBothMonths()
+        const line = budgetLine() as HTMLElement
+        expect(line).toHaveTextContent(/^Budgets: €7\.70 of €10\.00$/) // not the €50.00 of unbudgeted groceries
+        expect(line).toHaveClass('tnum', 'text-muted')
+        expect(within(summary()).getByText('€57.70').compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      })
+
+      it('counts the spending of the shown month only', () => {
+        withBudgets([[COFFEE.id, 1000]])
+        render(page('/?month=2026-09'))
+        deliver(SEPTEMBER, { month: '2026-09' })
+        deliver([entry('a1', COFFEE, '2026-08-25', 1000, 'beans')], { month: '2026-08' })
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €15\.00 of €10\.00$/) // September's coffee, not August's
+      })
+
+      it('shows the budgets of a month without entries too', () => {
+        withBudgets([[COFFEE.id, 1000]])
+        render(page())
+        deliver([])
+        expect(screen.getByText('Nothing in October 2026')).toBeInTheDocument()
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €0\.00 of €10\.00$/)
+      })
+
+      it('draws each budgeted category against its limit, and one without spending as an empty row', () => {
+        withBudgets([[COFFEE.id, 500], [GROCERIES.id, 10000], [GYM.id, 2000], [SALARY.id, 500000]])
+        render(page())
+        deliver(OCTOBER.filter((t) => t.categoryId !== GROCERIES.id))
+        // Coffee is past its €5.00; nothing went on groceries yet. The archived gym and the income category get no row.
+        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00', 'Groceries€0.00€0.00 of €100.00'])
+        const bars = within(breakdown()).getAllByTestId('bar')
+        expect(bars.map((bar) => bar.style.width)).toEqual(['100%', '0%'])
+        expect(bars[0]).toHaveClass('bg-expense')
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €105\.00$/)
+      })
+
+      it('changes nothing without a budget of an active expense category', () => {
+        withBudgets([[GYM.id, 2000], [SALARY.id, 500000]])
+        render(page())
+        deliver([...OCTOBER, entry('o5', GYM, '2026-10-05', 4000, 'monthly pass')])
+        expect(budgetLine()).not.toBeInTheDocument()
+        // The archived gym keeps its share although its old limit is still stored.
+        expect(breakdownRows()).toEqual(['Groceries€50.0051%', 'Gym€40.0041%', 'Coffee€7.708%'])
       })
     })
   })

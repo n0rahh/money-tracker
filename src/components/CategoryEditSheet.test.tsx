@@ -14,19 +14,20 @@ const TAXI: Category = { id: 'c3', name: 'Taxi', icon: 'Car', color: 'yellow', k
 /** Active expense categories sorted by `order`; the gaps keep "next order" distinct from the count. */
 const SIBLINGS = [GROCERIES, COFFEE, TAXI]
 
-const { createCategory, updateCategory, swapCategoryOrder } = vi.hoisted(() => ({
+const { createCategory, updateCategory, swapCategoryOrder, setBudget } = vi.hoisted(() => ({
   createCategory: vi.fn(),
   updateCategory: vi.fn(),
   swapCategoryOrder: vi.fn(),
+  setBudget: vi.fn(),
 }))
-vi.mock('../lib/firestore', () => ({ createCategory, updateCategory, swapCategoryOrder }))
+vi.mock('../lib/firestore', () => ({ createCategory, updateCategory, swapCategoryOrder, setBudget }))
 
 const onClose = vi.fn()
 // nextOrder 12, as if archived categories of the kind reach order 11: past the siblings' max + 1 (8) on purpose.
 const sheet = (props: Partial<ComponentProps<typeof CategoryEditSheet>> = {}) => (
   <MemoryRouter>
     <ToastProvider>
-      <CategoryEditSheet open kind="expense" editing={null} siblings={SIBLINGS} nextOrder={12} onClose={onClose} {...props} />
+      <CategoryEditSheet open kind="expense" editing={null} siblings={SIBLINGS} nextOrder={12} budget={null} currency="PLN" locale="en" onClose={onClose} {...props} />
     </ToastProvider>
   </MemoryRouter>
 )
@@ -37,6 +38,7 @@ beforeEach(() => {
   createCategory.mockReturnValue({ id: 'new', done: new Promise<void>(() => {}) })
   updateCategory.mockReturnValue(new Promise<void>(() => {}))
   swapCategoryOrder.mockReturnValue(new Promise<void>(() => {}))
+  setBudget.mockReturnValue(new Promise<void>(() => {}))
 })
 
 describe('CategoryEditSheet', () => {
@@ -51,6 +53,7 @@ describe('CategoryEditSheet', () => {
     expect(create).toBeEnabled()
     await user.click(create)
     expect(createCategory).toHaveBeenCalledWith({ name: 'Books', icon: 'CircleEllipsis', color: 'rose', kind: 'expense', order: 12, archived: false })
+    expect(setBudget).not.toHaveBeenCalled() // no budget was entered
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
@@ -157,5 +160,101 @@ describe('CategoryEditSheet', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(await screen.findByRole('status')).toHaveTextContent(/denied/)
+  })
+
+  describe('monthly budget', () => {
+    const budgetField = () => screen.getByRole('textbox', { name: 'Monthly budget' })
+    const SALARY: Category = { id: 'c9', name: 'Salary', icon: 'Banknote', color: 'lime', kind: 'income', order: 0, archived: false }
+
+    it('is offered for expense categories only', () => {
+      const { unmount } = render(sheet())
+      expect(budgetField()).toBeInTheDocument()
+      unmount()
+      const income = render(sheet({ kind: 'income', siblings: [], nextOrder: 1 }))
+      expect(screen.queryByRole('textbox', { name: 'Monthly budget' })).not.toBeInTheDocument()
+      income.unmount()
+      render(sheet({ kind: 'income', editing: SALARY, siblings: [SALARY], nextOrder: 1 }))
+      expect(screen.queryByRole('textbox', { name: 'Monthly budget' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'No budget' })).not.toBeInTheDocument()
+    })
+
+    it('shows the stored budget and writes none when it is saved unchanged', async () => {
+      const user = userEvent.setup()
+      render(sheet({ editing: COFFEE, budget: 12000 }))
+      expect(budgetField()).toHaveValue('120')
+      await user.clear(budgetField())
+      await user.type(budgetField(), '120.00') // the same limit, typed differently
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      expect(updateCategory).toHaveBeenCalledTimes(1)
+      expect(setBudget).not.toHaveBeenCalled()
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('saves a changed budget and closes without waiting for the server', async () => {
+      const user = userEvent.setup()
+      render(sheet({ editing: COFFEE, budget: 12000 }))
+      await user.clear(budgetField())
+      await user.type(budgetField(), '150.50')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      expect(setBudget.mock.calls).toEqual([['c2', 15050]])
+      expect(updateCategory).toHaveBeenCalledWith('c2', { name: 'Coffee', icon: 'Coffee', color: 'amber' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('removes the budget with "No budget"', async () => {
+      const user = userEvent.setup()
+      render(sheet({ editing: COFFEE, budget: 12000 }))
+      await user.click(screen.getByRole('button', { name: 'No budget' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      expect(setBudget.mock.calls).toEqual([['c2', null]])
+    })
+
+    it('gives a new category its budget under the id it is created with', async () => {
+      const user = userEvent.setup()
+      render(sheet())
+      await user.type(screen.getByLabelText('Name'), 'Books')
+      await user.type(budgetField(), '300')
+      await user.click(screen.getByRole('button', { name: 'Create' }))
+      expect(createCategory).toHaveBeenCalledWith(expect.objectContaining({ name: 'Books', kind: 'expense' }))
+      expect(setBudget.mock.calls).toEqual([['new', 30000]])
+      expect(createCategory.mock.invocationCallOrder[0]).toBeLessThan(setBudget.mock.invocationCallOrder[0])
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('cannot be saved while the budget is not an amount', async () => {
+      const user = userEvent.setup()
+      render(sheet({ editing: COFFEE, budget: 12000 }))
+      await user.clear(budgetField())
+      await user.type(budgetField(), 'abc')
+      expect(screen.getByText('Enter a number like 500 or 499.99')).toBeInTheDocument()
+      const save = screen.getByRole('button', { name: 'Save' })
+      expect(save).toBeDisabled()
+      await user.click(save)
+      expect(updateCategory).not.toHaveBeenCalled()
+      expect(setBudget).not.toHaveBeenCalled()
+
+      await user.clear(budgetField())
+      expect(save).toBeEnabled() // empty is "no budget"
+    })
+
+    it('writes nothing for an untouched field, even when the stored budget arrives after it opened', async () => {
+      const user = userEvent.setup()
+      const { rerender } = render(sheet({ editing: COFFEE, budget: null }))
+      expect(budgetField()).toHaveValue('')
+      rerender(sheet({ editing: COFFEE, budget: 12000 }))
+      expect(budgetField()).toHaveValue('120')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      expect(setBudget).not.toHaveBeenCalled()
+    })
+
+    it('reports a failed budget write in a toast after closing', async () => {
+      setBudget.mockImplementation(() => Promise.reject(new Error('denied')))
+      const user = userEvent.setup()
+      render(sheet({ editing: COFFEE, budget: 12000 }))
+      await user.click(screen.getByRole('button', { name: 'No budget' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(await screen.findByRole('status')).toHaveTextContent(/denied/)
+    })
   })
 })

@@ -7,9 +7,11 @@ type Props = {
   locale: string | null
   /** The month holds writes the server has not acknowledged yet (offline, or still in flight). */
   syncing?: boolean
+  /** "Budgets: <spent> of <limit>" for the budgeted categories, muted under the hero; none without a budget. */
+  budgetLine?: string
 }
 
-export function SummaryCard({ totals, currency, locale, syncing = false }: Props) {
+export function SummaryCard({ totals, currency, locale, syncing = false, budgetLine }: Props) {
   return (
     <section className="relative rounded-card border border-border bg-surface p-5">
       {/* Spec §11. Positioned, so it moves nothing, and next to the totals it qualifies. */}
@@ -18,6 +20,7 @@ export function SummaryCard({ totals, currency, locale, syncing = false }: Props
       ) : null}
       <p className="text-xs font-semibold uppercase tracking-wider text-muted">Spent</p>
       <p className="tnum mt-1 truncate text-[40px] font-semibold leading-none">{formatMoney(totals.expense, currency, locale)}</p>
+      {budgetLine ? <p className="tnum mt-2 text-sm text-muted">{budgetLine}</p> : null}
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-muted">Income</p>

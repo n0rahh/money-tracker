@@ -9,6 +9,7 @@ import { PaceLine } from '../components/PaceLine'
 import { SummaryCard } from '../components/SummaryCard'
 import { TransactionList } from '../components/TransactionList'
 import { useAddSheet } from '../context/AddSheetContext'
+import { useBudgets } from '../hooks/useBudgets'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
@@ -56,6 +57,7 @@ export function HomePage() {
   // app left open), so "Today" and "Yesterday" move on after midnight.
   const today = useMemo(() => todayIso(), [tick, transactions])
   const { byId } = useCategories()
+  const { budgets } = useBudgets()
   const { settings, loading: settingsLoading } = useSettings()
   const { openAdd, openEdit } = useAddSheet()
   const navigate = useNavigate()
@@ -72,7 +74,32 @@ export function HomePage() {
   const currency = settings?.currency ?? 'USD'
   const locale = settings?.locale ?? null
   const totals = useMemo(() => totalsByKind(transactions), [transactions])
-  const breakdown = useMemo(() => totalsByCategory(transactions, 'expense'), [transactions])
+  // The budgets that count (spec §9): those of active expense categories, in category order. An archived category's limit
+  // rests until it is unarchived, so it adds no empty row every month and nothing to the total.
+  const expenseBudgets = useMemo(() => {
+    const limits = new Map<string, number>()
+    for (const c of byId.values()) {
+      const limit = budgets.get(c.id)
+      if (limit !== undefined && c.kind === 'expense' && !c.archived) limits.set(c.id, limit)
+    }
+    return limits
+  }, [byId, budgets])
+  // A budgeted category with nothing spent yet still gets its (empty) row, after the others.
+  const breakdown = useMemo(() => {
+    const rows = totalsByCategory(transactions, 'expense')
+    const listed = new Set(rows.map((r) => r.categoryId))
+    for (const id of expenseBudgets.keys()) if (!listed.has(id)) rows.push({ categoryId: id, total: 0, count: 0, share: 0 })
+    return rows
+  }, [transactions, expenseBudgets])
+  // The summary's budget line: the shown month's spending in the budgeted categories against the sum of their limits.
+  const budgetTotals = useMemo(() => {
+    if (expenseBudgets.size === 0) return null
+    let spent = 0
+    let limit = 0
+    for (const r of breakdown) if (expenseBudgets.has(r.categoryId)) spent += r.total
+    for (const monthly of expenseBudgets.values()) limit += monthly
+    return { spent, limit }
+  }, [breakdown, expenseBudgets])
   const groups = useMemo(() => groupByDay(transactions), [transactions])
   const days = useMemo(() => totalsByDay(transactions, month, 'expense'), [transactions, month])
   // Nothing is compared until last month's rows are in: before that (or after its query failed) every category would read as "new".
@@ -105,7 +132,13 @@ export function HomePage() {
   return (
     <>
       <MonthSwitcher month={month} locale={locale} onChange={changeMonth} />
-      <SummaryCard totals={totals} currency={currency} locale={locale} syncing={pending} />
+      <SummaryCard
+        totals={totals}
+        currency={currency}
+        locale={locale}
+        syncing={pending}
+        budgetLine={budgetTotals ? `Budgets: ${money(budgetTotals.spent)} of ${money(budgetTotals.limit)}` : undefined}
+      />
       {/* Like the strip and the breakdown, only for a month with entries: an empty month has its own empty state. */}
       {pace && !loading && transactions.length > 0 ? <PaceLine pace={pace} currency={currency} locale={locale} /> : null}
       {error ? <p className="mt-4 text-center text-sm text-danger">{readErrorText(error)}</p> : null}
@@ -132,6 +165,7 @@ export function HomePage() {
             locale={locale}
             deltas={deltas}
             legend={isCurrentMonth ? 'vs last month to date' : 'vs previous month'}
+            budgets={expenseBudgets}
             // The category page opens on the shown month and its Back link returns to it; the current month needs no ?month=.
             onSelect={(categoryId) => navigate(month === currentMonth() ? `/category/${categoryId}` : `/category/${categoryId}?month=${month}`)}
           />

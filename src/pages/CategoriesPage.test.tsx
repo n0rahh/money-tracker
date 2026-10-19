@@ -13,14 +13,19 @@ const OTHER: Category = { id: 'c3', name: 'Other', icon: 'CircleEllipsis', color
 /** A higher order of the other kind, which must not count. */
 const SALARY: Category = { id: 'c4', name: 'Salary', icon: 'Banknote', color: 'emerald', kind: 'income', order: 9, archived: false }
 
-const { createCategory, updateCategory, swapCategoryOrder, useCategories } = vi.hoisted(() => ({
+const { createCategory, updateCategory, swapCategoryOrder, setBudget, useCategories, useBudgets, useSettings } = vi.hoisted(() => ({
   createCategory: vi.fn(),
   updateCategory: vi.fn(),
   swapCategoryOrder: vi.fn(),
+  setBudget: vi.fn(),
   useCategories: vi.fn(),
+  useBudgets: vi.fn(),
+  useSettings: vi.fn(),
 }))
-vi.mock('../lib/firestore', () => ({ createCategory, updateCategory, swapCategoryOrder }))
+vi.mock('../lib/firestore', () => ({ createCategory, updateCategory, swapCategoryOrder, setBudget }))
 vi.mock('../hooks/useCategories', () => ({ useCategories }))
+vi.mock('../hooks/useBudgets', () => ({ useBudgets }))
+vi.mock('../hooks/useSettings', () => ({ useSettings }))
 
 const withCategories = (categories: Category[]) =>
   useCategories.mockReturnValue({ categories, byId: new Map(categories.map((c) => [c.id, c])), loading: false, error: null })
@@ -45,7 +50,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   createCategory.mockReturnValue({ id: 'new', done: new Promise<void>(() => {}) })
   updateCategory.mockReturnValue(new Promise<void>(() => {}))
+  setBudget.mockReturnValue(new Promise<void>(() => {}))
   withCategories([GROCERIES, COFFEE, OTHER, SALARY])
+  // Coffee may spend PLN 120.00 a month.
+  useBudgets.mockReturnValue({ budgets: new Map([[COFFEE.id, 12000]]), loading: false, error: null })
+  useSettings.mockReturnValue({ settings: { currency: 'PLN', locale: 'en' }, loading: false, fromCache: false, error: null })
 })
 
 describe('CategoriesPage', () => {
@@ -91,5 +100,22 @@ describe('CategoriesPage', () => {
     await user.click(screen.getByRole('link', { name: 'History' }))
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Category c2$/)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it("edits a category's own budget in the currency of the settings", async () => {
+    const user = userEvent.setup()
+    page()
+    await user.click(screen.getByRole('button', { name: 'Groceries' }))
+    expect(screen.getByRole('textbox', { name: 'Monthly budget' })).toHaveValue('') // Groceries has none
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByRole('button', { name: 'Coffee' }))
+    const field = screen.getByRole('textbox', { name: 'Monthly budget' })
+    expect(field).toHaveValue('120')
+    await user.clear(field)
+    await user.type(field, '150')
+    expect(field).toHaveAccessibleDescription('PLN\u00a0150.00 a month') // Intl's no-break space after the code
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(setBudget.mock.calls).toEqual([['c2', 15000]])
   })
 })

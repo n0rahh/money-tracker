@@ -14,13 +14,16 @@ type Props = {
   deltas?: Map<string, CategoryDelta>
   /** What the badges compare with, beside the heading while there are badges. */
   legend?: string
+  /** The monthly limit by category id: a row with one is measured against it and reads "<spent> of <limit>" instead of its share. */
+  budgets?: Map<string, number>
   /** Makes each row a button that opens its category; a category removed by hand has no page, so its row stays plain. */
   onSelect?: (categoryId: string) => void
 }
 
-export function BreakdownList({ rows, byId, currency, locale, deltas, legend = 'vs previous month', onSelect }: Props) {
+export function BreakdownList({ rows, byId, currency, locale, deltas, legend = 'vs previous month', budgets, onSelect }: Props) {
   if (rows.length === 0) return null
   const max = rows[0].total
+  const money = (minor: number) => formatMoney(minor, currency, locale)
   return (
     <section className="mt-4">
       <div className="mb-2 flex items-baseline justify-between px-1">
@@ -32,19 +35,30 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, legend = '
           const category = byId.get(r.categoryId)
           const color = category ? CATEGORY_COLORS[category.color] : CATEGORY_COLORS.slate
           const delta = deltas?.get(r.categoryId)
+          const budget = budgets?.get(r.categoryId)
+          // Spec §9: against its budget the bar is full from 100 % on and turns the expense colour; without one it is
+          // relative to the largest row.
+          const fill = budget !== undefined ? Math.min(r.total / budget, 1) : r.total / max
+          const over = budget !== undefined && r.total >= budget
           // Spans only: inside a button the row may hold phrasing content alone.
           const content = (
             <>
               <span className="flex items-center gap-3">
                 <CategoryIcon category={category} size={32} />
                 <span className="flex-1 truncate text-[15px]">{category?.name ?? 'Uncategorized'}</span>
-                <span className="tnum text-[15px] font-medium">{formatMoney(r.total, currency, locale)}</span>
-                <span className="tnum w-10 text-right text-xs text-muted">{Math.round(r.share * 100)}%</span>
+                <span className="tnum text-[15px] font-medium">{money(r.total)}</span>
+                {budget === undefined ? <span className="tnum w-10 text-right text-xs text-muted">{Math.round(r.share * 100)}%</span> : null}
               </span>
               <span className="mt-2 flex items-center gap-2">
                 <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-                  <span className="block h-full rounded-full" style={{ width: `${(r.total / max) * 100}%`, background: color }} />
+                  <span
+                    data-testid="bar"
+                    className={`block h-full rounded-full ${over ? 'bg-expense' : ''}`}
+                    style={{ width: `${fill * 100}%`, background: over ? undefined : color }}
+                  />
                 </span>
+                {/* Beside its bar, which it explains; too wide for the share's slot next to the name on a phone. */}
+                {budget !== undefined ? <span className="tnum whitespace-nowrap text-xs text-muted">{`${money(r.total)} of ${money(budget)}`}</span> : null}
                 {/* Under the share, clear of the name; the same minimum slot width in every row keeps the bars comparable. */}
                 {deltas ? (
                   <span className="flex min-w-14 justify-end">{delta ? <DeltaBadge deltaPct={delta.deltaPct} previous={delta.previous} /> : null}</span>
