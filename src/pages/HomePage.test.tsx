@@ -625,6 +625,17 @@ describe('HomePage', () => {
         expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €105\.00$/)
       })
 
+      it('says a category exactly at its limit is at it, with a full bar in the expense colour', () => {
+        withBudgets([[COFFEE.id, 770]]) // October's coffee to the cent
+        render(page())
+        deliver(OCTOBER)
+        expect(breakdownRows()).toEqual(['Groceries€50.0087%', 'Coffee€7.70€7.70 of €7.70 · at limit, at the limit'])
+        const bar = within(breakdown()).getAllByTestId('bar')[1]
+        expect(bar.style.width).toBe('100%')
+        expect(bar).toHaveClass('bg-expense')
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €7\.70$/)
+      })
+
       it('picks up budgets that arrive after the month, empty rows included', () => {
         const { rerender } = render(page())
         deliver(OCTOBER.filter((t) => t.categoryId !== GROCERIES.id))

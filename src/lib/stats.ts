@@ -193,9 +193,15 @@ export function activeExpenseBudgets(categories: Iterable<Category>, budgets: Ma
   return counted
 }
 
-/** The bar's fill (full at 100 %) and whether the limit is reached, which the plan sets at 100 % itself (`>=`). */
-export function budgetProgress(spent: number, budget: number): { ratio: number; over: boolean } {
-  return { ratio: Math.min(spent / budget, 1), over: spent >= budget }
+/** Where a month's spending stands against its limit: below it, exactly at it, or past it. */
+export type BudgetState = 'under' | 'at' | 'over'
+
+/**
+ * The bar's fill (full from 100 % on) and where the spending stands. The plan colours the bar from 100 % itself, so `at`
+ * and `over` both reach the limit; only `over` has an overage.
+ */
+export function budgetProgress(spent: number, budget: number): { ratio: number; state: BudgetState } {
+  return { ratio: Math.min(spent / budget, 1), state: spent > budget ? 'over' : spent === budget ? 'at' : 'under' }
 }
 
 /** The rows plus an empty one for each budgeted category with nothing spent, after the others, in the order of `budgets`. */

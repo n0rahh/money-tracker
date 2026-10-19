@@ -36,8 +36,10 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, legend = '
           const color = category ? CATEGORY_COLORS[category.color] : CATEGORY_COLORS.slate
           const delta = deltas?.get(r.categoryId)
           const budget = budgets?.get(r.categoryId)
-          // Against its budget, full and expense-coloured once the limit is reached (spec §9); without one, against the largest row.
-          const { ratio, over } = budget === undefined ? { ratio: r.total / max, over: false } : budgetProgress(r.total, budget)
+          // Against its budget (spec §9); without one, against the largest row, and never at or over a limit.
+          const { ratio, state } = budget === undefined ? { ratio: r.total / max, state: 'under' as const } : budgetProgress(r.total, budget)
+          // The expense colour from 100 % on: at the limit as well as past it (the plan).
+          const reached = state !== 'under'
           // Spans only: inside a button the row may hold phrasing content alone.
           const content = (
             <>
@@ -56,8 +58,8 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, legend = '
                 <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
                   <span
                     data-testid="bar"
-                    className={`block h-full rounded-full ${over ? 'bg-expense' : ''}`}
-                    style={{ width: `${ratio * 100}%`, background: over ? undefined : color }}
+                    className={`block h-full rounded-full ${reached ? 'bg-expense' : ''}`}
+                    style={{ width: `${ratio * 100}%`, background: reached ? undefined : color }}
                   />
                 </span>
                 {/* Under the share, clear of the name; the same minimum slot width in every row keeps the bars comparable. */}
@@ -65,12 +67,12 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, legend = '
                   <span className="flex min-w-14 justify-end">{delta ? <DeltaBadge deltaPct={delta.deltaPct} previous={delta.previous} /> : null}</span>
                 ) : null}
               </span>
-              {/* A line of its own, so the bar keeps the width of every other row's. Over the limit it says by how much, which
-                  the expense colour alone cannot (it is close to the rose and red categories) and assistive tech does not see. */}
+              {/* A line of its own, so the bar keeps the width of every other row's. At the limit it says so, past it by how much:
+                  the expense colour alone cannot (it is close to the rose and red categories), and assistive tech does not see it. */}
               {budget === undefined ? null : (
                 <span className="tnum mt-1 block text-xs text-muted">
-                  {`${money(r.total)} of ${money(budget)}${over ? ` · ${money(r.total - budget)} over` : ''}`}
-                  {over ? <span className="sr-only">, over budget</span> : null}
+                  {`${money(r.total)} of ${money(budget)}${state === 'over' ? ` · ${money(r.total - budget)} over` : state === 'at' ? ' · at limit' : ''}`}
+                  {state === 'under' ? null : <span className="sr-only">{state === 'over' ? ', over budget' : ', at the limit'}</span>}
                 </span>
               )}
             </>
