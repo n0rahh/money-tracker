@@ -6,7 +6,7 @@ import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
 import { addDays, todayIso } from '../lib/dates'
-import { createTransaction, deleteTransaction, updateTransaction } from '../lib/firestore'
+import { createTransaction, deleteTransaction, restoreTransaction, updateTransaction } from '../lib/firestore'
 import { EMPTY_KEYPAD, keypadFromMinor, keypadMinor, pressKey, type KeypadState } from '../lib/keypad'
 import { formatMoney, minorUnitDigits } from '../lib/money'
 import { readErrorText } from '../lib/readError'
@@ -110,9 +110,17 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     onClose() // never wait for the server: the local cache already applied the write
   }
 
+  // No confirmation: the toast's Undo writes the entry back under its own id. Neither write is waited for.
   function remove() {
-    if (!editing || !window.confirm('Delete this transaction?')) return
-    deleteTransaction(editing.id).catch(fail('Could not delete'))
+    if (!editing) return
+    const deleted = editing
+    deleteTransaction(deleted.id).catch(fail('Could not delete'))
+    showToast('Deleted', {
+      actionLabel: 'Undo',
+      onAction: () => {
+        restoreTransaction(deleted).catch(fail('Could not undo'))
+      },
+    })
     onClose()
   }
 

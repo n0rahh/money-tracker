@@ -116,6 +116,28 @@ export function deleteTransaction(id: string): Promise<void> {
   return deleteDoc(doc(db, 'transactions', id))
 }
 
+/**
+ * Undo of a delete: writes the transaction back under its own id exactly as it was read. `at` and `createdAt` are the
+ * stored Timestamps themselves (a trip through Date, as in `transactionData`, would drop their microseconds); only
+ * `updatedAt` is new.
+ */
+export function restoreTransaction(tx: Transaction): Promise<void> {
+  return setDoc(doc(db, 'transactions', tx.id), {
+    kind: tx.kind,
+    amount: tx.amount,
+    categoryId: tx.categoryId,
+    note: tx.note,
+    date: tx.date,
+    at: tx.at,
+    source: tx.source,
+    // Left out, never null (the rules refuse it), for an entry that does not come from a template.
+    ...(tx.recurringId ? { recurringId: tx.recurringId } : {}),
+    // Absent when there was none to read, such as the original's own server timestamp still pending: a fresh one then.
+    createdAt: tx.createdAt ?? serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
 // ---- budgets ----
 
 /**

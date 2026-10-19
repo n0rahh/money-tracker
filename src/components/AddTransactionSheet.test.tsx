@@ -15,6 +15,16 @@ const CATS: Category[] = [
 ]
 const FLAT_WHITE: Transaction = { id: 't9', kind: 'expense', amount: 350, categoryId: 'c1', note: 'flat white', date: '2026-10-01', at: Timestamp.fromDate(new Date(2026, 9, 1, 12)), source: 'app' }
 const YEN_COFFEE: Transaction = { ...FLAT_WHITE, id: 't10', amount: 1200, note: '' }
+/** Made by a recurring template and already known to the server: Undo must hand back every field, these included. */
+const RENT: Transaction = {
+  ...FLAT_WHITE,
+  id: 'rec_r1_2026-10',
+  amount: 120_000,
+  note: 'rent',
+  recurringId: 'r1',
+  createdAt: Timestamp.fromDate(new Date(2026, 9, 1, 0, 0, 5)),
+  updatedAt: Timestamp.fromDate(new Date(2026, 9, 2, 8, 30)),
+}
 const LUNCH: Category = { id: 'c3', name: 'Lunch', icon: 'Utensils', color: 'orange', kind: 'expense', order: 1, archived: false }
 /** Coffee was archived after the flat white was logged; Lunch is still active. */
 const COFFEE_ARCHIVED: Category[] = [{ ...CATS[0], archived: true }, LUNCH, CATS[1]]
@@ -38,15 +48,16 @@ const RECENT = [
   ...logged(SANDWICH, ['2026-09-20']), // as frequent as the canteen lunch but older: fifth, so left out
 ]
 
-const { createTransaction, updateTransaction, deleteTransaction, useCategories, useSettings, useTransactions } = vi.hoisted(() => ({
+const { createTransaction, updateTransaction, deleteTransaction, restoreTransaction, useCategories, useSettings, useTransactions } = vi.hoisted(() => ({
   createTransaction: vi.fn(),
   updateTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
+  restoreTransaction: vi.fn(),
   useCategories: vi.fn(),
   useSettings: vi.fn(),
   useTransactions: vi.fn(),
 }))
-vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction }))
+vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction, restoreTransaction }))
 vi.mock('../hooks/useCategories', () => ({ useCategories }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useTransactions', () => ({ useTransactions }))
@@ -80,10 +91,11 @@ beforeEach(() => {
   createTransaction.mockReturnValue({ id: 'new', done: new Promise<void>(() => {}) }) // never resolves: offline
   updateTransaction.mockReturnValue(new Promise<void>(() => {}))
   deleteTransaction.mockReturnValue(new Promise<void>(() => {}))
+  restoreTransaction.mockReturnValue(new Promise<void>(() => {}))
 })
 
 afterEach(() => {
-  vi.restoreAllMocks() // the window.confirm spies
+  vi.restoreAllMocks() // the window.confirm spy
 })
 
 describe('AddTransactionSheet', () => {
@@ -201,25 +213,44 @@ describe('AddTransactionSheet', () => {
     expect(screen.getByRole('button', { name: /save ¥1,200 · coffee/i })).toBeInTheDocument()
   })
 
-  it('keeps the transaction when the delete is not confirmed', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
+  it('deletes at once, without asking and without waiting for the server, and offers Undo', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const user = userEvent.setup()
     setup()
     await user.click(screen.getByText('open-edit'))
     await user.click(screen.getByRole('button', { name: 'Delete' }))
-    expect(window.confirm).toHaveBeenCalledWith('Delete this transaction?')
-    expect(deleteTransaction).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-  })
-
-  it('deletes after confirmation without waiting for the server', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    const user = userEvent.setup()
-    setup()
-    await user.click(screen.getByText('open-edit'))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(confirm).not.toHaveBeenCalled()
     expect(deleteTransaction).toHaveBeenCalledWith('t9')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const toast = screen.getByRole('status')
+    expect(toast).toHaveTextContent('Deleted')
+    expect(within(toast).getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+    expect(restoreTransaction).not.toHaveBeenCalled()
+  })
+
+  it('Undo writes the deleted entry back as it was, once, without waiting for the server', async () => {
+    const user = userEvent.setup()
+    render(app(RENT))
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(restoreTransaction).toHaveBeenCalledTimes(1)
+    expect(restoreTransaction).toHaveBeenCalledWith(RENT)
+    // The toast goes with the tap, so there is no second Undo, and the sheet stays closed.
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(deleteTransaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('explains a failed Undo', async () => {
+    restoreTransaction.mockImplementation(() => Promise.reject(new FirebaseError('permission-denied', 'Missing or insufficient permissions.')))
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(await screen.findByText("Could not undo: You don't have access to this data (signed in with the wrong account?)")).toBeInTheDocument()
   })
 
   it('reports a failed save in a toast after the sheet has closed', async () => {
@@ -236,7 +267,6 @@ describe('AddTransactionSheet', () => {
   })
 
   it('explains a failed delete the user can act on, such as a wrong account', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     deleteTransaction.mockImplementation(() => Promise.reject(new FirebaseError('permission-denied', 'Missing or insufficient permissions.')))
     const user = userEvent.setup()
     setup()

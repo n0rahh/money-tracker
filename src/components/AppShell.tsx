@@ -1,4 +1,5 @@
 import { ChartColumn, House, Plus, Settings, Tags } from 'lucide-react'
+import { Suspense } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAddSheet } from '../context/AddSheetContext'
 import { AddTransactionSheet } from './AddTransactionSheet'
@@ -40,7 +41,11 @@ export function AppShell() {
         <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
           <main className="safe-pt flex-1 px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] md:px-8 md:pb-8">
             <div className="mx-auto w-full max-w-[640px]">
-              <Outlet />
+              {/* Stands in for a lazy page (App.tsx) whose code is still loading, with the navigation usable around it. In practice
+                  that is a cold deep link: in-app navigation is a router transition, which keeps the current page until the next is in. */}
+              <Suspense fallback={<p className="mt-6 text-center text-sm text-muted">Loading…</p>}>
+                <Outlet />
+              </Suspense>
             </div>
           </main>
 
