@@ -17,7 +17,8 @@ import {
 import { DEFAULT_CATEGORIES } from './defaultCategories'
 import { db } from './firebase'
 import { mapBudget, mapCategory, mapRecurring, mapSettings, mapTransaction, transactionAt } from './mappers'
-import type { Category, CategoryInput, IsoDate, RecurringInput, RecurringTemplate, Settings, Transaction, TransactionInput } from './types'
+import { instanceFor, instanceId } from './recurring'
+import type { Category, CategoryInput, IsoDate, IsoMonth, RecurringInput, RecurringTemplate, Settings, Transaction, TransactionInput } from './types'
 
 const categoriesCol = () => collection(db, 'categories')
 const transactionsCol = () => collection(db, 'transactions')
@@ -168,12 +169,21 @@ export function setBudget(categoryId: string, monthly: number | null): Promise<v
 // ---- recurring ----
 
 /** Sorted here, by start month and then day, rather than by the query: ordering by two fields would need a new index. */
-export function subscribeRecurring(onData: (templates: RecurringTemplate[]) => void, onError?: (e: Error) => void): Unsubscribe {
+export function subscribeRecurring(
+  onData: (templates: RecurringTemplate[], fromCache: boolean) => void,
+  onError?: (e: Error) => void,
+): Unsubscribe {
   return onSnapshot(
     recurringCol(),
+    // includeMetadataChanges: the materialiser writes only from a list the server has confirmed, so it must learn when a
+    // list first served from the cache is confirmed, which changes only the metadata.
+    { includeMetadataChanges: true },
     (snap) => {
       const templates = snap.docs.map((d) => mapRecurring(d.id, d.data()))
-      onData(templates.sort((a, b) => a.startMonth.localeCompare(b.startMonth) || a.dayOfMonth - b.dayOfMonth))
+      onData(
+        templates.sort((a, b) => a.startMonth.localeCompare(b.startMonth) || a.dayOfMonth - b.dayOfMonth),
+        snap.metadata.fromCache,
+      )
     },
     (e) => onError?.(e),
   )
@@ -191,6 +201,51 @@ export function updateRecurring(id: string, patch: Partial<RecurringInput>): Pro
 
 export function deleteRecurring(id: string): Promise<void> {
   return deleteDoc(doc(db, 'recurring', id))
+}
+
+/**
+ * Undo of a template delete: writes it back under its own id as it was read, `createdAt` the stored Timestamp itself;
+ * only `updatedAt` is new. Its entries were never touched, and `lastAppliedMonth` comes back with it, so nothing is
+ * written twice.
+ */
+export function restoreRecurring(t: RecurringTemplate): Promise<void> {
+  return setDoc(doc(db, 'recurring', t.id), {
+    kind: t.kind,
+    amount: t.amount,
+    categoryId: t.categoryId,
+    note: t.note,
+    dayOfMonth: t.dayOfMonth,
+    startMonth: t.startMonth,
+    // Both written even when null: the rules want the fields present (null or a month), not left out.
+    endMonth: t.endMonth,
+    lastAppliedMonth: t.lastAppliedMonth,
+    // Absent when there was none to read, such as the template's own server timestamp still pending: a fresh one then.
+    createdAt: t.createdAt ?? serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/**
+ * Turns the given months of a template (ascending, at most MAX_MONTHS_PER_RUN, as monthsToMaterialise returns them)
+ * into ordinary entries, in one batch with the template's `lastAppliedMonth` moved to the last of them. Each entry has
+ * the deterministic id of its month and is a plain set, so a second device materialising the same month overwrites the
+ * same document instead of adding one. Never awaited by the UI.
+ */
+export function materialiseRecurring(t: RecurringTemplate, months: IsoMonth[]): Promise<void> {
+  const last = months.at(-1)
+  if (last === undefined) return Promise.resolve()
+  const batch = writeBatch(db)
+  for (const month of months) {
+    // instanceFor sets recurringId to the template's id, which transactionData keeps.
+    batch.set(doc(db, 'transactions', instanceId(t.id, month)), {
+      ...transactionData(instanceFor(t, month)),
+      source: 'app',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  }
+  batch.update(doc(db, 'recurring', t.id), { lastAppliedMonth: last, updatedAt: serverTimestamp() })
+  return batch.commit()
 }
 
 // ---- settings ----

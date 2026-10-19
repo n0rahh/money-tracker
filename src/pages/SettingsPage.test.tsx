@@ -1,9 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
 import { CURRENCIES } from '../lib/currencies'
-import type { Settings } from '../lib/types'
+import type { RecurringTemplate, Settings } from '../lib/types'
 import { SettingsPage } from './SettingsPage'
 
 const OWNER = 'vlad.herasymovychh@gmail.com'
@@ -12,26 +13,41 @@ const IPHONE_SAFARI =
 const DESKTOP_CHROME =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
 
-const { useAuth, useSettings, saveSettings, isStandalone } = vi.hoisted(() => ({
+const { useAuth, useSettings, useRecurring, saveSettings, isStandalone } = vi.hoisted(() => ({
   useAuth: vi.fn(),
   useSettings: vi.fn(),
+  useRecurring: vi.fn(),
   saveSettings: vi.fn(),
   isStandalone: vi.fn(),
 }))
 vi.mock('../context/AuthContext', () => ({ useAuth }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
+vi.mock('../hooks/useRecurring', () => ({ useRecurring }))
 vi.mock('../lib/firestore', () => ({ saveSettings }))
 vi.mock('../lib/platform', () => ({ isStandalone }))
 
 const logOut = vi.fn()
 const withSettings = (settings: Settings) => useSettings.mockReturnValue({ settings, loading: false, fromCache: false, error: null })
-const page = () => render(<ToastProvider><SettingsPage /></ToastProvider>)
+const withTemplates = (templates: RecurringTemplate[], loading = false) =>
+  useRecurring.mockReturnValue({ templates, loading, fromCache: false, error: null })
+const page = () =>
+  render(
+    <ToastProvider>
+      <MemoryRouter initialEntries={['/settings']}>
+        <Routes>
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="recurring" element={<p>Recurring stub</p>} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
+  )
 
 beforeEach(() => {
   vi.clearAllMocks()
   useAuth.mockReturnValue({ user: { email: OWNER }, logOut })
   logOut.mockResolvedValue(undefined)
   withSettings({ currency: 'PLN', locale: null })
+  withTemplates([])
   // Never settles: the page must not wait for the write before it updates the screen.
   saveSettings.mockReturnValue(new Promise<void>(() => {}))
   isStandalone.mockReturnValue(false)
@@ -67,6 +83,39 @@ describe('SettingsPage', () => {
     page()
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(await screen.findByRole('status')).toHaveTextContent(shown)
+  })
+
+  describe('recurring', () => {
+    const running = (id: string, endMonth: string | null): RecurringTemplate => ({
+      id, kind: 'expense', amount: 1_599, categoryId: 'subs', note: id, dayOfMonth: 5, startMonth: '2026-01', endMonth, lastAppliedMonth: '2026-08',
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('links to the templates and counts those that still run: no end, or an end this month or later', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(2026, 9, 19, 9, 0)) // October 2026
+      withTemplates([running('open', null), running('ends-now', '2026-10'), running('ends-later', '2026-12'), running('ended', '2026-09')])
+      const user = userEvent.setup()
+      page()
+      const link = screen.getByRole('link', { name: /^Recurring/ })
+      expect(link).toHaveAttribute('href', '/recurring')
+      expect(within(link).getByText('3')).toBeInTheDocument()
+      await user.click(link)
+      expect(screen.getByText('Recurring stub')).toBeInTheDocument()
+    })
+
+    it('counts 0 with none, and shows no number before the templates are in', () => {
+      const { unmount } = page()
+      expect(within(screen.getByRole('link', { name: /^Recurring/ })).getByText('0')).toBeInTheDocument()
+      unmount()
+      withTemplates([], true)
+      page()
+      const link = screen.getByRole('link', { name: /^Recurring/ })
+      expect(link).toHaveTextContent(/^Recurring—$/)
+    })
   })
 
   describe('currency', () => {

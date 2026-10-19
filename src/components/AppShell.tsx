@@ -2,6 +2,7 @@ import { ChartColumn, House, Plus, Settings, Tags } from 'lucide-react'
 import { Suspense } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAddSheet } from '../context/AddSheetContext'
+import { useRecurringMaterialiser } from '../hooks/useRecurringMaterialiser'
 import { AddTransactionSheet } from './AddTransactionSheet'
 import { FirstRunGate } from './FirstRunGate'
 
@@ -14,6 +15,8 @@ const links = [
 
 export function AppShell() {
   const { openAdd } = useAddSheet()
+  // Here once for the signed-in app, whichever page is open: monthly entries appear by themselves (spec §9).
+  useRecurringMaterialiser()
   return (
     <div className="min-h-dvh bg-bg text-text">
       <div className="mx-auto flex min-h-dvh max-w-5xl">

@@ -13,8 +13,8 @@ const PAY: RecurringTemplate = {
 const { subscribeRecurring } = vi.hoisted(() => ({ subscribeRecurring: vi.fn() }))
 vi.mock('../lib/firestore', () => ({ subscribeRecurring }))
 
-/** Answers the subscription with a snapshot, or with an error. */
-const deliver = (templates: RecurringTemplate[]) => act(() => subscribeRecurring.mock.lastCall?.[0](templates))
+/** Answers the subscription with a snapshot (by default one the server has confirmed), or with an error. */
+const deliver = (templates: RecurringTemplate[], fromCache = false) => act(() => subscribeRecurring.mock.lastCall?.[0](templates, fromCache))
 const fail = (e: Error) => act(() => subscribeRecurring.mock.lastCall?.[1](e))
 
 beforeEach(() => {
@@ -36,6 +36,18 @@ describe('useRecurring', () => {
 
     deliver([PAY]) // a template was deleted
     expect(result.current.templates).toEqual([PAY])
+  })
+
+  it('says whether the list comes from the cache only, until the server confirms it', () => {
+    const { result } = renderHook(() => useRecurring())
+    expect(result.current.fromCache).toBe(true) // nothing is confirmed before the first snapshot
+    deliver([RENT], true) // the cached list of an offline launch
+    expect(result.current.loading).toBe(false)
+    expect(result.current.templates).toEqual([RENT])
+    expect(result.current.fromCache).toBe(true)
+    deliver([RENT, PAY], false) // the server's answer
+    expect(result.current.templates).toEqual([RENT, PAY])
+    expect(result.current.fromCache).toBe(false)
   })
 
   it('stops loading and reports the error when the subscription fails', () => {

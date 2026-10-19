@@ -14,7 +14,7 @@ const TrendsPage = lazy(() => import('./pages/TrendsPage').then((m) => ({ defaul
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((m) => ({ default: m.CategoriesPage })))
 const CategoryPage = lazy(() => import('./pages/CategoryPage').then((m) => ({ default: m.CategoryPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
-// RecurringPage goes here the same way, with its `recurring` route below.
+const RecurringPage = lazy(() => import('./pages/RecurringPage').then((m) => ({ default: m.RecurringPage })))
 
 export default function App() {
   return (
@@ -31,6 +31,7 @@ export default function App() {
                   <Route path="categories" element={<CategoriesPage />} />
                   <Route path="category/:id" element={<CategoryPage />} />
                   <Route path="settings" element={<SettingsPage />} />
+                  <Route path="recurring" element={<RecurringPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

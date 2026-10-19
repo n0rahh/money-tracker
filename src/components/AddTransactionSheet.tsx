@@ -5,18 +5,20 @@ import { useToast } from '../context/ToastContext'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
-import { addDays, todayIso } from '../lib/dates'
-import { createTransaction, deleteTransaction, restoreTransaction, updateTransaction } from '../lib/firestore'
+import { addDays, parseIsoDate, todayIso } from '../lib/dates'
+import { createRecurring, createTransaction, deleteTransaction, materialiseRecurring, restoreTransaction, updateTransaction } from '../lib/firestore'
 import { EMPTY_KEYPAD, keypadFromMinor, keypadMinor, pressKey, type KeypadState } from '../lib/keypad'
 import { formatMoney, minorUnitDigits } from '../lib/money'
 import { readErrorText } from '../lib/readError'
+import { templateFrom } from '../lib/recurring'
 import { orderCategoriesByRecency, suggestions, type Suggestion } from '../lib/stats'
-import type { IsoDate, Kind, Settings, Transaction } from '../lib/types'
+import type { IsoDate, Kind, Settings, Transaction, TransactionInput } from '../lib/types'
 import { AmountDisplay } from './AmountDisplay'
 import { Button } from './Button'
 import { CategoryChip } from './CategoryChip'
 import { DateChips } from './DateChips'
 import { Keypad } from './Keypad'
+import { RecurringToggle } from './RecurringToggle'
 import { SegmentedControl } from './SegmentedControl'
 import { Sheet } from './Sheet'
 import { SuggestionChips } from './SuggestionChips'
@@ -37,6 +39,19 @@ export function AddTransactionSheet() {
       onClose={close}
     />
   )
+}
+
+/**
+ * A new entry with "Repeat every month" on: the template, then its own entry for the entry's month through
+ * materialiseRecurring, under that month's deterministic id rather than through createTransaction. The materialiser may
+ * see the new template a moment before this batch lands and write the same month itself: same id, so still one entry.
+ * The template object is built here rather than read back, as no write is waited for.
+ */
+function startRepeating(entry: TransactionInput): Promise<unknown> {
+  const input = templateFrom(entry)
+  const { id, done } = createRecurring(input)
+  // One promise for both writes, so a failure is reported once.
+  return Promise.all([done, materialiseRecurring({ ...input, id, lastAppliedMonth: null }, [input.startMonth])])
 }
 
 type FormProps = {
@@ -67,6 +82,8 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
   const [categoryId, setCategoryId] = useState<string | null>(editing?.categoryId ?? null)
   const [date, setDate] = useState<IsoDate>(editing?.date ?? todayIso())
   const [note, setNote] = useState(editing?.note ?? '')
+  // New entries only: an entry made from a template is edited like any other, and its template is managed in Settings.
+  const [repeat, setRepeat] = useState(false)
 
   // An edit keeps its archived category on offer, first and marked; pickers otherwise hide archived ones (spec §6), so new entries never see it.
   const archivedOriginal = editing ? categories.find((c) => c.id === editing.categoryId && c.archived) : undefined
@@ -102,9 +119,10 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
   function save() {
     if (!canSave || !selected) return
     const input = { kind, amount, categoryId: selected.id, note: note.trim(), date }
-    const pending = editing
-      ? updateTransaction(editing.id, { ...input, at: editing.date === date ? editing.at.toDate() : undefined })
-      : createTransaction(input).done
+    let pending: Promise<unknown>
+    if (editing) pending = updateTransaction(editing.id, { ...input, at: editing.date === date ? editing.at.toDate() : undefined })
+    else if (repeat) pending = startRepeating(input)
+    else pending = createTransaction(input).done
     pending.catch(fail('Could not save'))
     rememberKind(kind)
     onClose() // never wait for the server: the local cache already applied the write
@@ -181,6 +199,8 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
             ))}
           </div>
         </div>
+        {/* Last, so the rows of the fast path (digits, category, Save) stay where they were. */}
+        {editing ? null : <RecurringToggle checked={repeat} onChange={setRepeat} dayOfMonth={parseIsoDate(date).getDate()} />}
       </div>
     </Sheet>
   )

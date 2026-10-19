@@ -1,10 +1,14 @@
+import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { CurrencySheet } from '../components/CurrencySheet'
 import { InstallHint } from '../components/InstallHint'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
+import { useRecurring } from '../hooks/useRecurring'
 import { useSettings } from '../hooks/useSettings'
+import { currentMonth } from '../lib/dates'
 import { saveSettings } from '../lib/firestore'
 import { minorUnitDigits } from '../lib/money'
 
@@ -14,8 +18,12 @@ const DECIMALS_WARNING =
 export function SettingsPage() {
   const { user, logOut } = useAuth()
   const { settings } = useSettings()
+  const { templates, loading: recurringLoading, error: recurringError } = useRecurring()
   const { showToast } = useToast()
   const [currencyOpen, setCurrencyOpen] = useState(false)
+  const thisMonth = currentMonth()
+  // Templates that still run: no end, or an end this month or later.
+  const running = templates.filter((t) => t.endMonth === null || t.endMonth >= thisMonth).length
 
   function chooseCurrency(code: string) {
     const current = settings?.currency
@@ -34,6 +42,13 @@ export function SettingsPage() {
           <span>Currency</span>
           <span className="tnum text-muted">{settings?.currency ?? '—'}</span>
         </button>
+        <Link to="/recurring" className="flex min-h-12 w-full items-center justify-between border-t border-border px-4 active:bg-surface-2">
+          <span>Recurring</span>
+          <span className="flex items-center gap-1 text-muted">
+            <span className="tnum">{recurringLoading || recurringError ? '—' : running}</span>
+            <ChevronRight size={18} aria-hidden />
+          </span>
+        </Link>
         <div className="flex min-h-12 items-center justify-between border-t border-border px-4">
           <span className="shrink-0">Signed in as</span>
           <span className="truncate pl-4 text-xs text-muted">{user?.email}</span>

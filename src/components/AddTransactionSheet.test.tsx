@@ -1,6 +1,6 @@
 import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSheetProvider, useAddSheet } from '../context/AddSheetContext'
@@ -48,16 +48,20 @@ const RECENT = [
   ...logged(SANDWICH, ['2026-09-20']), // as frequent as the canteen lunch but older: fifth, so left out
 ]
 
-const { createTransaction, updateTransaction, deleteTransaction, restoreTransaction, useCategories, useSettings, useTransactions } = vi.hoisted(() => ({
+const {
+  createTransaction, updateTransaction, deleteTransaction, restoreTransaction, createRecurring, materialiseRecurring, useCategories, useSettings, useTransactions,
+} = vi.hoisted(() => ({
   createTransaction: vi.fn(),
   updateTransaction: vi.fn(),
   deleteTransaction: vi.fn(),
   restoreTransaction: vi.fn(),
+  createRecurring: vi.fn(),
+  materialiseRecurring: vi.fn(),
   useCategories: vi.fn(),
   useSettings: vi.fn(),
   useTransactions: vi.fn(),
 }))
-vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction, restoreTransaction }))
+vi.mock('../lib/firestore', () => ({ createTransaction, updateTransaction, deleteTransaction, restoreTransaction, createRecurring, materialiseRecurring }))
 vi.mock('../hooks/useCategories', () => ({ useCategories }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useTransactions', () => ({ useTransactions }))
@@ -92,6 +96,8 @@ beforeEach(() => {
   updateTransaction.mockReturnValue(new Promise<void>(() => {}))
   deleteTransaction.mockReturnValue(new Promise<void>(() => {}))
   restoreTransaction.mockReturnValue(new Promise<void>(() => {}))
+  createRecurring.mockReturnValue({ id: 'r-new', done: new Promise<void>(() => {}) })
+  materialiseRecurring.mockReturnValue(new Promise<void>(() => {}))
 })
 
 afterEach(() => {
@@ -306,6 +312,124 @@ describe('AddTransactionSheet', () => {
     await user.click(screen.getByRole('button', { name: 'Coffee' }))
     await user.click(screen.getByRole('button', { name: /save €3\.50 · coffee/i }))
     expect(updateTransaction).toHaveBeenCalledWith('t9', expect.objectContaining({ categoryId: 'c1' }))
+  })
+
+  describe('Repeat every month', () => {
+    beforeEach(() => {
+      // Only the clock: Saturday 17 Oct 2026, midday.
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date(2026, 9, 17, 12, 0))
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    const repeat = () => screen.queryByRole('switch')
+
+    it('is offered to a new entry, off, on the day of the chosen date', async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      const toggle = screen.getByRole('switch', { name: 'Repeat every month on day 17' })
+      expect(toggle).toHaveAttribute('aria-checked', 'false')
+      expect(toggle).toHaveClass('min-h-11') // the whole 44 px row is the target
+      await user.click(screen.getByRole('button', { name: 'Yesterday' }))
+      expect(screen.getByRole('switch', { name: 'Repeat every month on day 16' })).toHaveAttribute('aria-checked', 'false')
+      await user.click(screen.getByRole('switch'))
+      expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    })
+
+    it("saves a template from the entry and its first entry as the template's own for that month, without waiting", async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.click(screen.getByRole('radio', { name: 'Income' }))
+      for (const key of ['5', '0', '0', '0']) await user.click(screen.getByRole('button', { name: key }))
+      await user.click(screen.getByRole('button', { name: 'Salary' }))
+      await user.type(screen.getByLabelText('Note'), '  pay  ')
+      await user.click(screen.getByRole('switch', { name: 'Repeat every month on day 17' }))
+      await user.click(screen.getByRole('button', { name: 'Add €5,000.00 · Salary' }))
+
+      const input = { kind: 'income', amount: 500_000, categoryId: 'c2', note: 'pay', dayOfMonth: 17, startMonth: '2026-10', endMonth: null }
+      expect(createRecurring).toHaveBeenCalledTimes(1)
+      expect(createRecurring).toHaveBeenCalledWith(input)
+      // Built from the input and the new id at once: the snapshot is not waited for.
+      expect(materialiseRecurring).toHaveBeenCalledTimes(1)
+      expect(materialiseRecurring).toHaveBeenCalledWith({ ...input, id: 'r-new', lastAppliedMonth: null }, ['2026-10'])
+      expect(createRecurring.mock.invocationCallOrder[0]).toBeLessThan(materialiseRecurring.mock.invocationCallOrder[0])
+      expect(createTransaction).not.toHaveBeenCalled() // the first entry is the template's own, under its fixed id
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('starts in the month of a back-dated entry, on its day', async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.click(screen.getByRole('button', { name: '9' }))
+      await user.click(screen.getByRole('button', { name: 'Coffee' }))
+      fireEvent.change(screen.getByLabelText('Pick a date'), { target: { value: '2026-09-30' } })
+      await user.click(screen.getByRole('switch', { name: 'Repeat every month on day 30' }))
+      await user.click(screen.getByRole('button', { name: 'Add €9.00 · Coffee' }))
+      const input = { kind: 'expense', amount: 900, categoryId: 'c1', note: '', dayOfMonth: 30, startMonth: '2026-09', endMonth: null }
+      expect(createRecurring).toHaveBeenCalledWith(input)
+      expect(materialiseRecurring).toHaveBeenCalledWith({ ...input, id: 'r-new', lastAppliedMonth: null }, ['2026-09'])
+    })
+
+    it('adds an ordinary entry when left off, or turned off again', async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: 'Coffee' }))
+      await user.click(screen.getByRole('switch'))
+      await user.click(screen.getByRole('switch'))
+      await user.click(screen.getByRole('button', { name: 'Add €5.00 · Coffee' }))
+      expect(createTransaction).toHaveBeenCalledWith({ kind: 'expense', amount: 500, categoryId: 'c1', note: '', date: '2026-10-17' })
+      expect(createRecurring).not.toHaveBeenCalled()
+      expect(materialiseRecurring).not.toHaveBeenCalled()
+    })
+
+    it('starts off again on the next open, and the kind is remembered as for any entry', async () => {
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.click(screen.getByRole('radio', { name: 'Income' }))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: 'Salary' }))
+      await user.click(screen.getByRole('switch'))
+      await user.click(screen.getByRole('button', { name: 'Add €5.00 · Salary' }))
+      await user.click(screen.getByText('open-add'))
+      expect(screen.getByRole('radio', { name: 'Income' })).toBeChecked()
+      expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false')
+    })
+
+    it('is not offered when editing: an entry made from a template is edited like any other', async () => {
+      const user = userEvent.setup()
+      render(app(RENT))
+      await user.click(screen.getByText('open-edit'))
+      expect(screen.getByRole('heading', { name: 'Edit' })).toBeInTheDocument()
+      expect(repeat()).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: /save €1,200\.00 · coffee/i }))
+      expect(updateTransaction).toHaveBeenCalledWith('rec_r1_2026-10', expect.objectContaining({ amount: 120_000, note: 'rent' }))
+      expect(createRecurring).not.toHaveBeenCalled()
+    })
+
+    it('reports a failed template or first entry in a toast after the sheet has closed', async () => {
+      const denied = () => new FirebaseError('permission-denied', 'Missing or insufficient permissions.')
+      // Built on call, so each rejection gets its handler in the tick it is created.
+      createRecurring.mockImplementation(() => ({ id: 'r-new', done: Promise.reject(denied()) }))
+      materialiseRecurring.mockImplementation(() => Promise.reject(denied()))
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      await user.click(screen.getByRole('button', { name: '5' }))
+      await user.click(screen.getByRole('button', { name: 'Coffee' }))
+      await user.click(screen.getByRole('switch'))
+      await user.click(screen.getByRole('button', { name: 'Add €5.00 · Coffee' }))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(await screen.findByRole('status')).toHaveTextContent("Could not save: You don't have access to this data (signed in with the wrong account?)")
+    })
   })
 
   describe('Quick add', () => {
