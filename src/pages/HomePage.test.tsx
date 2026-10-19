@@ -260,6 +260,16 @@ describe('HomePage', () => {
       expect(heading()).toHaveTextContent('November 2026')
     })
 
+    it('follows the calendar again once the current month is picked in the month picker', async () => {
+      const user = userEvent.setup()
+      render(page('/?month=2026-07'))
+      await user.click(within(heading()).getByRole('button'))
+      await user.click(within(screen.getByRole('dialog', { name: 'Choose month' })).getByRole('button', { name: 'October' }))
+      expect(url()).toBe('/')
+      resumeAt(new Date(2026, 10, 1, 9, 0))
+      expect(heading()).toHaveTextContent('November 2026')
+    })
+
     it('follows the calendar after a link to the current month', () => {
       render(page('/?month=2026-10'))
       expect(url()).toBe('/') // the URL only ever names a month other than the current one
@@ -620,6 +630,259 @@ describe('HomePage', () => {
         expect(budgetLine()).not.toBeInTheDocument()
         // The archived gym keeps its share although its old limit is still stored.
         expect(breakdownRows()).toEqual(['Groceries€50.0051%', 'Gym€40.0041%', 'Coffee€7.708%'])
+      })
+    })
+
+    describe('month picker', () => {
+      const heading = () => screen.getByRole('heading', { level: 1 })
+      /** The month label in the header: the button that opens the picker. */
+      const monthButton = () => within(heading()).getByRole('button')
+      const picker = () => within(screen.getByRole('dialog', { name: 'Choose month' }))
+
+      it('opens from the month label and shows the picked month, kept in the URL', async () => {
+        const user = userEvent.setup()
+        render(page())
+        expect(monthButton()).toHaveAccessibleName('October 2026')
+        expect(monthButton()).toHaveAttribute('aria-haspopup', 'dialog')
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+        await user.click(monthButton())
+        expect(picker().getByRole('button', { name: 'October' })).toHaveAttribute('aria-pressed', 'true')
+        await user.click(picker().getByRole('button', { name: 'July' }))
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(heading()).toHaveTextContent('July 2026')
+        expect(url()).toBe('/?month=2026-07')
+        expect(lastNavigation()).toBe('REPLACE')
+        expect(listening()).toEqual([
+          { from: '2026-06-01', to: '2026-06-30' },
+          { from: '2026-07-01', to: '2026-07-31' },
+        ])
+        expect(monthButton()).toHaveFocus() // back where the picker was opened from
+      })
+
+      it('reaches the months of other years, the years ahead included', async () => {
+        const user = userEvent.setup()
+        render(page('/?month=2026-07'))
+        await user.click(monthButton())
+        expect(picker().getByRole('button', { name: 'July' })).toHaveAttribute('aria-pressed', 'true')
+        await user.click(picker().getByRole('button', { name: 'Previous year' }))
+        await user.click(picker().getByRole('button', { name: 'December' }))
+        expect(heading()).toHaveTextContent('December 2025')
+        expect(url()).toBe('/?month=2025-12')
+
+        await user.click(monthButton())
+        expect(picker().getByRole('button', { name: 'December' })).toHaveAttribute('aria-pressed', 'true') // it opens on 2025 now
+        await user.click(picker().getByRole('button', { name: 'Next year' }))
+        await user.click(picker().getByRole('button', { name: 'Next year' }))
+        await user.click(picker().getByRole('button', { name: 'January' }))
+        expect(heading()).toHaveTextContent('January 2027')
+        expect(url()).toBe('/?month=2027-01')
+      })
+    })
+
+    describe('search', () => {
+      const scrollIntoView = vi.fn()
+      const searchButton = () => screen.getByRole('button', { name: 'Search' })
+      const field = () => screen.getByRole('searchbox', { name: 'Search notes and categories' })
+      const kind = (name: 'All' | 'Expenses' | 'Income') => screen.getByRole('radio', { name })
+      /** The rows of the day list, newest day first, each as its text: category, note and amount. */
+      const entries = () =>
+        screen
+          .queryAllByRole('heading', { level: 3 })
+          .flatMap((day) => within(day.closest('[id^="day-"]') as HTMLElement).getAllByRole('listitem').map((row) => row.textContent))
+      const OCTOBER_ENTRIES = ['Coffeeflat white€3.50', 'Coffeeoat latte€4.20', 'Groceriesweekly shop€50.00', 'Salary+€3,000.00']
+
+      beforeEach(() => {
+        Element.prototype.scrollIntoView = scrollIntoView // jsdom does no layout, so it has no scrolling either
+      })
+
+      afterEach(() => {
+        Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+      })
+
+      it('keeps the field collapsed behind the Search button in the header until it is asked for', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        const button = searchButton()
+        expect(button).toHaveClass('size-11')
+        expect(button.compareDocumentPosition(screen.getByText('Spent')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy() // in the header
+        expect(button).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+
+        await user.click(button)
+        expect(button).toHaveAttribute('aria-expanded', 'true')
+        expect(field()).toHaveFocus()
+        expect(document.getElementById(button.getAttribute('aria-controls') ?? '')).toContainElement(field())
+        expect(entries()).toEqual(OCTOBER_ENTRIES) // nothing typed yet: the whole month
+        expect(screen.getByRole('status')).toBeEmptyDOMElement()
+      })
+
+      it('sits between the breakdown and the days, and goes to the top of the screen with the days under it', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        const order = [screen.getByRole('heading', { name: 'By category' }), field(), screen.getAllByRole('heading', { level: 3 })[0]]
+        expect(order.slice(1).map((el, i) => Boolean(order[i].compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING))).toEqual([true, true])
+        // At once, not smoothly: on iOS the keyboard coming up scrolls the focused field too, which would cut a smooth scroll short.
+        expect(scrollIntoView.mock.calls).toEqual([[{ block: 'start' }]])
+        const scrolled = scrollIntoView.mock.contexts[0] as HTMLElement
+        expect(scrolled).toContainElement(field())
+        expect(scrolled).toContainElement(screen.getAllByRole('heading', { level: 3 })[0])
+        expect(scrolled).not.toContainElement(breakdown())
+        // At least a screen tall: a list narrowed to nothing must not shorten the page and pull the field down behind the keyboard.
+        expect(scrolled).toHaveClass('min-h-dvh')
+      })
+
+      it('finds entries by note, whatever the case and the spaces around the query, and counts them', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), '  LATTE ')
+        expect(entries()).toEqual(['Coffeeoat latte€4.20'])
+        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry$/)
+        // A day totals its matching entries only: the groceries of the 10th are not on show.
+        const day = screen.getByRole('heading', { level: 3, name: 'Sat, Oct 10' }).closest('[id^="day-"]') as HTMLElement
+        expect(within(day).getByText('−€4.20')).toBeInTheDocument()
+
+        deliver([...OCTOBER, entry('o5', COFFEE, '2026-10-17', 450, 'Iced LATTE')]) // logged meanwhile on another device
+        expect(entries()).toEqual(['CoffeeIced LATTE€4.50', 'Coffeeoat latte€4.20'])
+        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries$/)
+      })
+
+      it('finds entries by the name of their category as the list shows it, archived or removed', async () => {
+        const user = userEvent.setup()
+        render(page())
+        deliver([
+          ...OCTOBER,
+          entry('o5', GYM, '2026-10-05', 4000, 'monthly pass'),
+          { ...entry('o6', COFFEE, '2026-10-03', 1200, 'gift'), categoryId: 'removed-in-console' },
+        ])
+        await user.click(searchButton())
+        await user.type(field(), 'coffee')
+        expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20'])
+        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries$/)
+        await user.clear(field())
+        await user.type(field(), 'gym')
+        expect(entries()).toEqual(['Gymmonthly pass€40.00'])
+        await user.clear(field())
+        await user.type(field(), 'uncategorized')
+        expect(entries()).toEqual(['Uncategorizedgift€12.00'])
+      })
+
+      it('narrows by kind, alone or together with the query', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.click(kind('Income'))
+        expect(entries()).toEqual(['Salary+€3,000.00'])
+        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry$/)
+        await user.click(kind('Expenses'))
+        expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20', 'Groceriesweekly shop€50.00'])
+        expect(screen.getByRole('status')).toHaveTextContent(/^3 matching entries$/)
+        await user.type(field(), 'shop')
+        expect(entries()).toEqual(['Groceriesweekly shop€50.00'])
+        await user.click(kind('Income'))
+        expect(entries()).toEqual([])
+        await user.click(kind('All'))
+        expect(entries()).toEqual(['Groceriesweekly shop€50.00'])
+      })
+
+      it('says "No matches" when nothing matches', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), 'zzz')
+        expect(entries()).toEqual([])
+        expect(screen.getByRole('status')).toHaveTextContent(/^No matches$/)
+      })
+
+      it('keeps the summary, the pace line, the daily strip and the breakdown on the whole month', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), 'latte')
+        await user.click(kind('Expenses'))
+        expect(entries()).toEqual(['Coffeeoat latte€4.20'])
+        const summary = within(screen.getByText('Spent').closest('section') as HTMLElement)
+        expect(summary.getByText('€57.70')).toBeInTheDocument()
+        expect(summary.getByText('€3,000.00')).toBeInTheDocument()
+        expect(paceLine()?.textContent).toBe('€57.70 by day 17 · last month by day 17: €45.00 +28 %')
+        expect(screen.getByRole('img', { name: /^Daily spending in .+: €57\.70 over 31 days$/ })).toBeInTheDocument()
+        expect(breakdownRows()).toEqual(['Groceries€50.0087%new', 'Coffee€7.7013%+54 %'])
+      })
+
+      it('shows the whole month again once closed, and opens empty the next time', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), 'latte')
+        await user.click(kind('Expenses'))
+        await user.click(searchButton())
+        expect(searchButton()).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+        expect(entries()).toEqual(OCTOBER_ENTRIES)
+
+        await user.click(searchButton())
+        expect(field()).toHaveValue('')
+        expect(kind('All')).toHaveAttribute('aria-checked', 'true')
+      })
+
+      it('starts over when the month changes, also on coming back to the month searched', async () => {
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        await user.click(searchButton())
+        await user.type(field(), 'latte')
+        await user.click(kind('Expenses'))
+        await user.click(screen.getByRole('button', { name: 'Previous month' }))
+        expect(searchButton()).toHaveAttribute('aria-expanded', 'false')
+        expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+        deliver(SEPTEMBER, { month: '2026-09' })
+        expect(entries()).toEqual(['Coffeebeans€10.00', 'Coffeecortado€5.00', 'Gymmonthly pass€40.00', 'Salary+€3,000.00'])
+
+        await user.click(screen.getByRole('button', { name: 'Next month' }))
+        deliver(OCTOBER)
+        expect(entries()).toEqual(OCTOBER_ENTRIES)
+        await user.click(searchButton())
+        expect(field()).toHaveValue('')
+        expect(kind('All')).toHaveAttribute('aria-checked', 'true')
+      })
+
+      it('starts over when the URL changes the month too (the Home tab)', async () => {
+        const user = userEvent.setup()
+        render(page('/?month=2026-09'))
+        deliver(SEPTEMBER, { month: '2026-09' })
+        await user.click(searchButton())
+        await user.type(field(), 'beans')
+        expect(entries()).toEqual(['Coffeebeans€10.00'])
+        await user.click(screen.getByRole('link', { name: 'Home tab' }))
+        deliver(OCTOBER)
+        expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+        expect(entries()).toEqual(OCTOBER_ENTRIES)
+      })
+
+      it('has nothing to search before the currency is known, while the month loads or when it has no entries', async () => {
+        const user = userEvent.setup()
+        useSettings.mockReturnValue({ settings: null, loading: true, fromCache: true, error: null })
+        const { rerender } = render(page())
+        deliver(OCTOBER)
+        expect(searchButton()).toBeDisabled() // no list yet: Home waits for the currency
+        withSettingsLoaded()
+        rerender(page())
+        expect(searchButton()).toBeEnabled()
+
+        await user.click(screen.getByRole('button', { name: 'Next month' }))
+        expect(searchButton()).toBeDisabled()
+        deliver([], { month: '2026-11' })
+        expect(screen.getByText('Nothing in November 2026')).toBeInTheDocument()
+        expect(searchButton()).toBeDisabled()
       })
     })
   })
