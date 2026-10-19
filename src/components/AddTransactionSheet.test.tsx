@@ -1,6 +1,6 @@
 import { FirebaseError } from 'firebase/app'
 import { Timestamp } from 'firebase/firestore'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AddSheetProvider, useAddSheet } from '../context/AddSheetContext'
@@ -257,6 +257,69 @@ describe('AddTransactionSheet', () => {
     await user.click(screen.getByRole('button', { name: 'Delete' }))
     await user.click(screen.getByRole('button', { name: 'Undo' }))
     expect(await screen.findByText("Could not undo: You don't have access to this data (signed in with the wrong account?)")).toBeInTheDocument()
+  })
+
+  it('Undo brings back the entry as it was stored, not the edits made before Delete', async () => {
+    const user = userEvent.setup()
+    render(app(RENT))
+    await user.click(screen.getByText('open-edit'))
+    await user.type(screen.getByLabelText('Note'), ' and bills')
+    await user.click(screen.getByRole('button', { name: '5' }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(restoreTransaction).toHaveBeenCalledTimes(1)
+    expect(restoreTransaction).toHaveBeenCalledWith(RENT)
+  })
+
+  it('opening the form takes a pending Undo toast away, so it cannot cover the keypad', async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+    await user.click(screen.getByText('open-add'))
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(restoreTransaction).not.toHaveBeenCalled()
+  })
+
+  it('still reports a failure that arrives while the form is open, and keeps it up as the form is used', async () => {
+    let failDelete: (e: Error) => void = () => {}
+    deleteTransaction.mockImplementation(() => new Promise<void>((_, reject) => { failDelete = reject }))
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    await user.click(screen.getByText('open-add'))
+    await act(async () => failDelete(new FirebaseError('permission-denied', 'Missing or insufficient permissions.')))
+    const denied = "Could not delete: You don't have access to this data (signed in with the wrong account?)"
+    expect(screen.getByRole('status')).toHaveTextContent(denied)
+    await user.click(screen.getByRole('button', { name: '5' }))
+    expect(screen.getByRole('status')).toHaveTextContent(denied)
+  })
+
+  describe('a failed Undo', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('stays on screen as long as the Undo did, 6 s', async () => {
+      restoreTransaction.mockImplementation(() => Promise.reject(new Error('offline')))
+      setup()
+      fireEvent.click(screen.getByText('open-edit'))
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      await act(async () => {}) // the rejected restore reports from a microtask
+      expect(screen.getByRole('status')).toHaveTextContent('Could not undo: offline')
+      act(() => vi.advanceTimersByTime(5999))
+      expect(screen.getByRole('status')).toHaveTextContent('Could not undo: offline')
+      act(() => vi.advanceTimersByTime(1))
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
   })
 
   it('reports a failed save in a toast after the sheet has closed', async () => {

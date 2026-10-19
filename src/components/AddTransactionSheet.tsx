@@ -1,7 +1,7 @@
 import { Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useAddSheet } from '../context/AddSheetContext'
-import { useToast } from '../context/ToastContext'
+import { ACTION_DURATION_MS, useToast } from '../context/ToastContext'
 import { useCategories } from '../hooks/useCategories'
 import { useSettings } from '../hooks/useSettings'
 import { useTransactions } from '../hooks/useTransactions'
@@ -64,7 +64,12 @@ type FormProps = {
 }
 
 function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose }: FormProps) {
-  const { showToast } = useToast()
+  const { showToast, dismissToast } = useToast()
+  // A toast is drawn above the sheet (z-60 over its z-50), right on the keypad's bottom row, and one with an Undo button takes
+  // the taps meant for `0` and `.`: opening the form moves on from it. Once per open, as the form is keyed per open.
+  useEffect(() => {
+    dismissToast()
+  }, [dismissToast])
   const { categories, byId, loading: categoriesLoading } = useCategories()
   // The last 60 days feed both the quick-add chips and the category order. Fixed for the whole open, so passing midnight never resubscribes.
   const [{ from, to }] = useState(() => {
@@ -107,7 +112,8 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     if (selected && selected.kind !== kind) setCategoryId(null)
   }, [kind, selected])
 
-  const fail = (what: string) => (e: unknown) => showToast(e instanceof Error ? `${what}: ${readErrorText(e)}` : what)
+  const fail = (what: string, durationMs?: number) => (e: unknown) =>
+    showToast(e instanceof Error ? `${what}: ${readErrorText(e)}` : what, { durationMs })
 
   function pick(s: Suggestion) {
     setKind(s.kind)
@@ -136,7 +142,8 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     showToast('Deleted', {
       actionLabel: 'Undo',
       onAction: () => {
-        restoreTransaction(deleted).catch(fail('Could not undo'))
+        // As long as the Undo it answers: the entry stays deleted, so this one must not be missed.
+        restoreTransaction(deleted).catch(fail('Could not undo', ACTION_DURATION_MS))
       },
     })
     onClose()
