@@ -14,6 +14,14 @@ import { readErrorText } from '../lib/readError'
 import { isMaterialisable } from '../lib/recurring'
 import type { RecurringTemplate } from '../lib/types'
 
+/** How much of a note a button's name carries: enough to tell templates apart, short enough to be read out. */
+const NOTE_IN_NAME = 40
+/** The note cut to NOTE_IN_NAME characters with an ellipsis, counted in code points, not UTF-16 units: no half emoji is left. */
+function noteForName(note: string): string {
+  const chars = Array.from(note)
+  return chars.length <= NOTE_IN_NAME ? note : `${chars.slice(0, NOTE_IN_NAME).join('').trimEnd()}…`
+}
+
 /** Settings → Recurring: every template, with Stop and Delete. The entries a template has made are never touched here. */
 export function RecurringPage() {
   const { templates, loading, error } = useRecurring()
@@ -80,7 +88,7 @@ export function RecurringPage() {
           const category = byId.get(t.categoryId)
           const name = category?.name ?? 'Uncategorized'
           // Each row's buttons say whose they are, so a list of them still reads apart: "Stop Housing (Flat)".
-          const which = t.note ? `${name} (${t.note})` : name
+          const which = t.note ? `${name} (${noteForName(t.note)})` : name
           const valid = isMaterialisable(t)
           // Running past this month: stopping it now changes something.
           const canStop = valid && (t.endMonth === null || t.endMonth > thisMonth)

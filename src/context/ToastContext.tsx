@@ -11,8 +11,8 @@ export type ToastOptions = {
 }
 type ToastApi = {
   showToast: (message: string, options?: ToastOptions) => void
-  /** Takes the toast on screen away at once, whatever its timer says. */
-  dismissToast: () => void
+  /** Takes the toast on screen away at once, whatever its timer says, if it offers an action; a plain toast stays. */
+  dismissActionToast: () => void
 }
 const ToastContext = createContext<ToastApi | null>(null)
 
@@ -25,9 +25,12 @@ export const ACTION_DURATION_MS = 6000
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<Toast | null>(null)
   const timer = useRef<number | undefined>(undefined)
+  // Whether the toast on screen offers an action, for dismissActionToast, which keeps one identity from toast to toast.
+  const offersAction = useRef(false)
 
   const dismiss = useCallback(() => {
     window.clearTimeout(timer.current)
+    offersAction.current = false
     setToast(null)
   }, [])
 
@@ -48,14 +51,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             }
           : null
       setToast({ message, action })
+      offersAction.current = action !== null
       window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(() => setToast(null), durationMs ?? (action ? ACTION_DURATION_MS : DURATION_MS))
+      timer.current = window.setTimeout(dismiss, durationMs ?? (action ? ACTION_DURATION_MS : DURATION_MS))
     },
     [dismiss],
   )
 
+  const dismissActionToast = useCallback(() => {
+    if (offersAction.current) dismiss()
+  }, [dismiss])
+
   useEffect(() => () => window.clearTimeout(timer.current), [])
-  const api = useMemo(() => ({ showToast, dismissToast: dismiss }), [showToast, dismiss])
+  const api = useMemo(() => ({ showToast, dismissActionToast }), [showToast, dismissActionToast])
 
   return (
     <ToastContext.Provider value={api}>
@@ -64,7 +72,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           with its text is often not announced); the toast itself is the status. Portalled under <body>, so this empty row is
           no part of the markup of what the provider wraps: it is fixed, so where it sits in the DOM does not show. */}
       {createPortal(
-        <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4">
+        <div data-testid="toast-region" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4">
           {toast ? (
             toast.action ? (
               // Takes its own taps, so a near miss of the button does not fall through to the page beneath.
@@ -89,4 +97,17 @@ export function useToast(): ToastApi {
   const ctx = useContext(ToastContext)
   if (!ctx) throw new Error('useToast must be used within ToastProvider')
   return ctx
+}
+
+/**
+ * For whatever opens over the page, such as a sheet: as `open` turns true, takes away a toast that offers an action. A toast
+ * is drawn above a sheet (z-60 over its z-50), over its lower part (the Add form's keypad, the month picker's last row), and
+ * one with a button takes the taps meant for the sheet there. A plain toast stays: it lets taps through, and it may say what
+ * failed. Does nothing outside a ToastProvider.
+ */
+export function useDismissToastWhenOpened(open: boolean): void {
+  const dismissActionToast = useContext(ToastContext)?.dismissActionToast
+  useEffect(() => {
+    if (open) dismissActionToast?.()
+  }, [open, dismissActionToast])
 }

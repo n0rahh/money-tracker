@@ -135,6 +135,21 @@ describe('RecurringPage', () => {
     expect(new Set(screen.getAllByRole('button', { name: /^Delete template / }).map((b) => b.getAttribute('aria-label'))).size).toBe(3)
   })
 
+  it('keeps those names short: a long note gives its first 40 characters, an emoji among them kept whole', () => {
+    withTemplates([
+      { ...RENT, note: 'Flat, 3rd floor, including the long one and the rest of it' },
+      { ...PAY, note: 'x'.repeat(40) }, // exactly 40: whole
+      { ...GYM, note: `${'y'.repeat(39)}🏠 and more` }, // the 40th is an emoji, two UTF-16 units
+    ])
+    page()
+    expect(screen.getByRole('button', { name: 'Stop Housing (Flat, 3rd floor, including the long one…)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete template Housing (Flat, 3rd floor, including the long one…)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `Stop Salary (${'x'.repeat(40)})` })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `Delete template Sport (${'y'.repeat(39)}🏠…)` })).toBeInTheDocument()
+    // The row itself shows the whole note, cut by its width only.
+    expect(screen.getByText('Flat, 3rd floor, including the long one and the rest of it')).toHaveClass('truncate')
+  })
+
   it('Stop ends a template with this month, without waiting for the server; its entries stay', async () => {
     const user = userEvent.setup()
     const { rerender } = page()

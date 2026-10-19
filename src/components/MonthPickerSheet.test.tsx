@@ -89,15 +89,23 @@ describe('MonthPickerSheet', () => {
       vi.setSystemTime(new Date(2026, 9, 17, 12, 0))
       const user = userEvent.setup()
       const today = (year: string) => monthsOf(year).filter((b) => b.getAttribute('aria-current') === 'date').map((b) => b.textContent)
+      // The dot is what a sighted user sees (aria-current is for the others): one, lime on the dark button, hidden from assistive tech.
+      const dotted = (year: string) => monthsOf(year).filter((b) => b.querySelector('span')).map((b) => b.textContent)
+      const dot = (name: string) => screen.getByRole('button', { name }).querySelector('span')
       const { rerender } = setup('2026-07')
       expect(today('2026')).toEqual(['October'])
+      expect(dotted('2026')).toEqual(['October'])
+      expect(dot('October')).toHaveAttribute('aria-hidden', 'true')
+      expect(dot('October')).toHaveClass('bg-accent')
       await user.click(screen.getByRole('button', { name: 'Previous year' }))
       expect(today('2025')).toEqual([])
+      expect(dotted('2025')).toEqual([])
 
       rerender(<MonthPickerSheet open={false} month="2026-10" locale="en" onSelect={vi.fn()} onClose={vi.fn()} />)
       rerender(<MonthPickerSheet open month="2026-10" locale="en" onSelect={vi.fn()} onClose={vi.fn()} />)
       expect(today('2026')).toEqual(['October']) // also when it is the month on show
       expect(pressed(monthsOf('2026'))).toEqual(['October'])
+      expect(dot('October')).toHaveClass('bg-accent-ink') // dark on the pressed lime, or it would not show
     })
   })
 

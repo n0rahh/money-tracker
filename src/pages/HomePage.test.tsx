@@ -26,8 +26,15 @@ const { subscribeTransactionsInRange, useSettings, useBudgets } = vi.hoisted(() 
 vi.mock('../lib/firestore', () => ({ subscribeTransactionsInRange }))
 /** Built once, as the real hook memoises it: Home's memos depend on its identity. Read lazily by the mock below. */
 const BY_ID = new Map(CATEGORIES.map((c) => [c.id, c]))
+/** false: the categories snapshot has not arrived yet, as on a cold start. Reset before each test. */
+let categoriesArrived = true
+const NO_CATEGORIES: Category[] = []
+const NO_BY_ID = new Map<string, Category>()
 vi.mock('../hooks/useCategories', () => ({
-  useCategories: () => ({ categories: CATEGORIES, byId: BY_ID, loading: false, error: null }),
+  useCategories: () =>
+    categoriesArrived
+      ? { categories: CATEGORIES, byId: BY_ID, loading: false, error: null }
+      : { categories: NO_CATEGORIES, byId: NO_BY_ID, loading: true, error: null },
 }))
 vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useBudgets', () => ({ useBudgets }))
@@ -99,6 +106,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   subscribeTransactionsInRange.mockImplementation(() => vi.fn()) // each subscription gets its own unsubscribe spy
   withBudgets() // none, unless a test sets some
+  categoriesArrived = true
 })
 
 describe('HomePage', () => {
@@ -618,7 +626,7 @@ describe('HomePage', () => {
         render(page())
         deliver(OCTOBER.filter((t) => t.categoryId !== GROCERIES.id))
         // Coffee is past its €5.00; nothing went on groceries yet. The archived gym and the income category get no row.
-        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00 · €2.70 over, over budget', 'Groceries€0.00€0.00 of €100.00'])
+        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00 · €2.70 over', 'Groceries€0.00€0.00 of €100.00'])
         const bars = within(breakdown()).getAllByTestId('bar')
         expect(bars.map((bar) => bar.style.width)).toEqual(['100%', '0%'])
         expect(bars[0]).toHaveClass('bg-expense')
@@ -629,7 +637,7 @@ describe('HomePage', () => {
         withBudgets([[COFFEE.id, 770]]) // October's coffee to the cent
         render(page())
         deliver(OCTOBER)
-        expect(breakdownRows()).toEqual(['Groceries€50.0087%', 'Coffee€7.70€7.70 of €7.70 · at limit, at the limit'])
+        expect(breakdownRows()).toEqual(['Groceries€50.0087%', 'Coffee€7.70€7.70 of €7.70 · at limit'])
         const bar = within(breakdown()).getAllByTestId('bar')[1]
         expect(bar.style.width).toBe('100%')
         expect(bar).toHaveClass('bg-expense')
@@ -644,7 +652,18 @@ describe('HomePage', () => {
         withBudgets([[COFFEE.id, 500], [GROCERIES.id, 10000]])
         rerender(page())
         expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €105\.00$/)
-        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00 · €2.70 over, over budget', 'Groceries€0.00€0.00 of €100.00'])
+        expect(breakdownRows()).toEqual(['Coffee€7.70€7.70 of €5.00 · €2.70 over', 'Groceries€0.00€0.00 of €100.00'])
+      })
+
+      it('picks up categories that arrive after the budgets and the month', () => {
+        categoriesArrived = false
+        withBudgets([[COFFEE.id, 1000]])
+        const { rerender } = render(page())
+        deliver(OCTOBER)
+        expect(budgetLine()).not.toBeInTheDocument() // no category yet, so no limit counts
+        categoriesArrived = true
+        rerender(page())
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €10\.00$/)
       })
 
       it('puts several empty budgeted rows after the others, in category order', () => {
@@ -663,6 +682,17 @@ describe('HomePage', () => {
         expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €10\.00$/)
         fail(new FirebaseError('permission-denied', 'Missing or insufficient permissions.'))
         expect(budgetLine()).not.toBeInTheDocument()
+      })
+
+      it('has no word about the budgets while they load or once they have loaded', () => {
+        useBudgets.mockReturnValue({ budgets: new Map(), loading: true, error: null }) // a cold start: nothing yet, and no failure
+        const { rerender } = render(page())
+        deliver(OCTOBER)
+        expect(screen.queryByText(/Could not load budgets/)).not.toBeInTheDocument()
+        withBudgets([[COFFEE.id, 1000]])
+        rerender(page())
+        expect(budgetLine()).toBeInTheDocument()
+        expect(screen.queryByText(/Could not load budgets/)).not.toBeInTheDocument()
       })
 
       it('says when the budgets cannot be read, under the summary like a failed month', () => {
@@ -809,14 +839,15 @@ describe('HomePage', () => {
         await user.click(searchButton())
         await user.type(field(), '  LATTE ')
         expect(entries()).toEqual(['Coffeeoat latte€4.20'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry · €4\.20$/)
+        // Signed as a day header signs its total.
+        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry · −€4\.20$/)
         // A day totals its matching entries only: the groceries of the 10th are not on show.
         const day = screen.getByRole('heading', { level: 3, name: 'Sat, Oct 10' }).closest('[id^="day-"]') as HTMLElement
         expect(within(day).getByText('−€4.20')).toBeInTheDocument()
 
         deliver([...OCTOBER, entry('o5', COFFEE, '2026-10-17', 450, 'Iced LATTE')]) // logged meanwhile on another device
         expect(entries()).toEqual(['CoffeeIced LATTE€4.50', 'Coffeeoat latte€4.20'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries · €8\.70$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries · −€8\.70$/)
       })
 
       it('finds entries by the name of their category as the list shows it, archived or removed', async () => {
@@ -830,7 +861,7 @@ describe('HomePage', () => {
         await user.click(searchButton())
         await user.type(field(), 'coffee')
         expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries · €7\.70$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^2 matching entries · −€7\.70$/)
         await user.clear(field())
         await user.type(field(), 'ffee') // inside the name, not at its start
         expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20'])
@@ -849,10 +880,11 @@ describe('HomePage', () => {
         await user.click(searchButton())
         await user.click(kind('Income'))
         expect(entries()).toEqual(['Salary+€3,000.00'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry · €3,000\.00$/)
+        // Income alone reads as income, not as a spend.
+        expect(screen.getByRole('status')).toHaveTextContent(/^1 matching entry · \+€3,000\.00$/)
         await user.click(kind('Expenses'))
         expect(entries()).toEqual(['Coffeeflat white€3.50', 'Coffeeoat latte€4.20', 'Groceriesweekly shop€50.00'])
-        expect(screen.getByRole('status')).toHaveTextContent(/^3 matching entries · €57\.70$/)
+        expect(screen.getByRole('status')).toHaveTextContent(/^3 matching entries · −€57\.70$/)
         await user.type(field(), 'shop')
         expect(entries()).toEqual(['Groceriesweekly shop€50.00'])
         await user.click(kind('Income'))

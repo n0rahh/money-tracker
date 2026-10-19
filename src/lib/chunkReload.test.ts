@@ -45,6 +45,19 @@ describe('reloadOnStaleChunk', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  it('reloads when the time noted is ahead of the clock (the clock was set back), and notes the time anew', () => {
+    const storage = memory({ 'chunk-reloaded-at': '1000000' })
+    const reload = vi.fn()
+    const event = failure()
+    reloadOnStaleChunk(event, { storage, reload, now: () => 999_000 }) // a second before the time noted
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(event.defaultPrevented).toBe(true)
+    expect(storage.getItem('chunk-reloaded-at')).toBe('999000')
+    // The guard holds again from the new time, so it still cannot loop.
+    reloadOnStaleChunk(failure(), { storage, reload, now: () => 1_005_000 })
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
   it('without working storage it does nothing, since a loop could not be told from a first failure', () => {
     const reload = vi.fn()
     const event = failure()

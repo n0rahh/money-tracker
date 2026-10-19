@@ -27,12 +27,15 @@ export function matchesSearch(entry: Pick<Transaction, 'kind' | 'note'>, categor
 }
 
 /**
- * The caption over one or more matching entries: how many, and what they add up to ("3 matching entries · €120.00").
- * Entries of both kinds keep their totals apart, as the day headers do ("−€7.70 +€3,000.00"), there is no net; the two
- * stay on one line (a no-break space), so a caption too long for a phone breaks after the count instead.
+ * The caption over one or more matching entries: how many, and what they add up to, signed as the day headers sign their
+ * totals ("3 matching entries · −€120.00"), so that matches of income alone do not read like a spend. Entries of both kinds
+ * keep their totals apart ("−€7.70 +€3,000.00"), there is no net. The dot and the totals are held together by no-break
+ * spaces, so a caption too long for a phone breaks after the count, with the dot starting the next line.
  */
 export function matchingCaption(count: number, totals: Pick<KindTotals, 'expense' | 'income'>, money: (minor: number) => string): string {
   const entries = `${count} matching ${count === 1 ? 'entry' : 'entries'}`
-  const sum = totals.expense > 0 && totals.income > 0 ? `−${money(totals.expense)}\u00a0+${money(totals.income)}` : money(totals.expense + totals.income)
-  return `${entries} · ${sum}`
+  const signed = [totals.expense > 0 ? `−${money(totals.expense)}` : '', totals.income > 0 ? `+${money(totals.income)}` : ''].filter(Boolean)
+  // Empty only for entries without an amount, which only a hand edit in the console leaves.
+  const sum = signed.length > 0 ? signed.join('\u00a0') : money(0)
+  return `${entries} ·\u00a0${sum}`
 }

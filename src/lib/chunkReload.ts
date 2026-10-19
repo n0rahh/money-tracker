@@ -21,7 +21,9 @@ const browser = (): Env => ({
  */
 export function reloadOnStaleChunk(event: Event, env: Env = browser()): void {
   try {
-    if (env.now() - Number(env.storage.getItem(RELOADED_AT) ?? 0) < LOOP_GUARD_MS) return
+    // A time ahead of the clock (the clock was set back) has expired too; the reload notes the time anew, so it cannot loop.
+    const elapsed = env.now() - Number(env.storage.getItem(RELOADED_AT) ?? 0)
+    if (elapsed >= 0 && elapsed < LOOP_GUARD_MS) return
     env.storage.setItem(RELOADED_AT, String(env.now()))
   } catch {
     return // no storage, so no way to tell a loop from a first failure: leave it to the ErrorBoundary

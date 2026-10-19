@@ -37,7 +37,7 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, legend = '
           const delta = deltas?.get(r.categoryId)
           const budget = budgets?.get(r.categoryId)
           // Against its budget (spec §9); without one, against the largest row, and never at or over a limit.
-          const { ratio, state } = budget === undefined ? { ratio: r.total / max, state: 'under' as const } : budgetProgress(r.total, budget)
+          const { ratio, state, overage } = budget === undefined ? { ratio: r.total / max, state: 'under' as const, overage: 0 } : budgetProgress(r.total, budget)
           // The expense colour from 100 % on: at the limit as well as past it (the plan).
           const reached = state !== 'under'
           // Spans only: inside a button the row may hold phrasing content alone.
@@ -68,11 +68,11 @@ export function BreakdownList({ rows, byId, currency, locale, deltas, legend = '
                 ) : null}
               </span>
               {/* A line of its own, so the bar keeps the width of every other row's. At the limit it says so, past it by how much:
-                  the expense colour alone cannot (it is close to the rose and red categories), and assistive tech does not see it. */}
+                  the expense colour alone cannot (it is close to the rose and red categories), and assistive tech does not see it.
+                  The words are read out as they are shown, so nothing hidden repeats them. */}
               {budget === undefined ? null : (
                 <span className="tnum mt-1 block text-xs text-muted">
-                  {`${money(r.total)} of ${money(budget)}${state === 'over' ? ` · ${money(r.total - budget)} over` : state === 'at' ? ' · at limit' : ''}`}
-                  {state === 'under' ? null : <span className="sr-only">{state === 'over' ? ', over budget' : ', at the limit'}</span>}
+                  {`${money(r.total)} of ${money(budget)}${state === 'over' ? ` · ${money(overage)} over` : state === 'at' ? ' · at limit' : ''}`}
                 </span>
               )}
             </>

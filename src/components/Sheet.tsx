@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useDismissToastWhenOpened } from '../context/ToastContext'
 
 type Props = {
   open: boolean
@@ -22,6 +23,8 @@ const FOCUSABLE =
 export function Sheet({ open, title, onClose, children, footer, full = false, headerRight, dismissible = true, bodyClassName = '' }: Props) {
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
+  // A toast with a button (Undo) is drawn over the sheet and would take the taps meant for it: opening moves on from one.
+  useDismissToastWhenOpened(open)
 
   useEffect(() => {
     if (!open) return

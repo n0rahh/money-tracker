@@ -131,6 +131,15 @@ describe('CategoriesPage', () => {
     expect(field).toHaveAccessibleDescription('1.500,00\u00a0PLN a month')
   })
 
+  it('raises no toast while the budgets load or once they have loaded', () => {
+    useBudgets.mockReturnValue({ budgets: new Map(), loading: true, error: null }) // a cold start: nothing yet, and no failure
+    const { rerender } = page()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    useBudgets.mockReturnValue({ budgets: new Map([[COFFEE.id, 12000]]), loading: false, error: null })
+    rerender(tree())
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
   describe('when the budgets cannot be read', () => {
     const DENIED = "Could not load budgets: You don't have access to this data (signed in with the wrong account?)"
     const failWith = (error: Error) => useBudgets.mockReturnValue({ budgets: new Map(), loading: false, error })

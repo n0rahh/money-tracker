@@ -88,7 +88,9 @@ describe('createRecurringWithFirstInstance against the rules', () => {
   })
 
   it('is refused as a whole: a template the rules refuse leaves no entry behind either', async () => {
-    const { id, done } = createRecurringWithFirstInstance({ ...RENT, amount: 0 })
+    // Day 32 refuses the template alone: its entry's date clamps to 31 August, which the rules take, so an entry left
+    // behind would show the two were written apart.
+    const { id, done } = createRecurringWithFirstInstance({ ...RENT, dayOfMonth: 32 })
     await assertFails(done)
     expect(await readTemplate(id)).toBeNull()
     expect(await entriesOf(id)).toEqual([])
@@ -101,12 +103,15 @@ describe('createRecurringWithFirstInstance against the rules', () => {
       if (!fromCache) confirmed = true
       for (const t of templates) seen.push(t.lastAppliedMonth)
     })
-    // In sync with the server first, as the app's listener is when Save is tapped online.
-    await vi.waitFor(() => expect(confirmed).toBe(true))
-    const { done } = createRecurringWithFirstInstance(templateFrom(PAYDAY))
-    await assertSucceeds(done)
-    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(2)) // the local write and the server's acknowledgement
-    stop()
+    try {
+      // In sync with the server first, as the app's listener is when Save is tapped online.
+      await vi.waitFor(() => expect(confirmed).toBe(true), { timeout: 5000 })
+      const { done } = createRecurringWithFirstInstance(templateFrom(PAYDAY))
+      await assertSucceeds(done)
+      await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(2), { timeout: 5000 }) // the local write and the server's acknowledgement
+    } finally {
+      stop()
+    }
     expect(seen).not.toContain(null)
     expect(new Set(seen)).toEqual(new Set(['2026-10']))
   })

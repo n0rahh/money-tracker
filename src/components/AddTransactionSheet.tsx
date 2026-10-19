@@ -51,12 +51,7 @@ type FormProps = {
 }
 
 function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose }: FormProps) {
-  const { showToast, dismissToast } = useToast()
-  // A toast is drawn above the sheet (z-60 over its z-50), right on the keypad's bottom row, and one with an Undo button takes
-  // the taps meant for `0` and `.`: opening the form moves on from it. Once per open, as the form is keyed per open.
-  useEffect(() => {
-    dismissToast()
-  }, [dismissToast])
+  const { showToast } = useToast()
   const { categories, byId, loading: categoriesLoading } = useCategories()
   // The last 60 days feed both the quick-add chips and the category order. Fixed for the whole open, so passing midnight never resubscribes.
   const [{ from, to }] = useState(() => {
@@ -114,6 +109,8 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     const input = { kind, amount, categoryId: selected.id, note: note.trim(), date }
     let pending: Promise<unknown>
     if (editing) pending = updateTransaction(editing.id, { ...input, at: editing.date === date ? editing.at.toDate() : undefined })
+    // No createTransaction: the entry is the template's own, under its month's fixed id. One batch for both, since a template
+    // written first and alone reached the listener with no month applied, and the materialiser then wrote that month again.
     else if (repeat) pending = createRecurringWithFirstInstance(templateFrom(input)).done
     else pending = createTransaction(input).done
     pending.catch(fail('Could not save'))
@@ -142,6 +139,7 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
 
   return (
     <Sheet
+      // Mounted per open with the form, so the Sheet takes a pending Undo toast off the keypad's bottom row on every open.
       open
       full
       title={editing ? 'Edit' : 'Add'}

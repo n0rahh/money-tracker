@@ -1,6 +1,6 @@
 import { act, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ToastProvider, useToast } from './ToastContext'
+import { ToastProvider, useDismissToastWhenOpened, useToast } from './ToastContext'
 
 type ToastApi = ReturnType<typeof useToast>
 
@@ -17,9 +17,16 @@ const wait = (ms: number) => act(() => vi.advanceTimersByTime(ms))
 const toast = () => screen.queryByRole('status')
 /**
  * Whether a tap on the element reaches it or falls through to the page beneath. `pointer-events` is inherited, so the
- * nearest element that sets it decides; there is no CSS in tests, so its utility classes stand for it.
+ * nearest element that sets it decides, and an element that nothing sets it on takes taps (the CSS default is `auto`); there
+ * is no CSS in tests, so its utility classes stand for it.
  */
-const taps = (el: Element) => (el.closest('.pointer-events-auto, .pointer-events-none')?.classList.contains('pointer-events-auto') ? 'taken' : 'through')
+const taps = (el: Element) => (el.closest('.pointer-events-auto, .pointer-events-none')?.classList.contains('pointer-events-none') ? 'through' : 'taken')
+/** Something that opens over the page, as a sheet does. */
+function Opener({ open }: { open: boolean }) {
+  useDismissToastWhenOpened(open)
+  return null
+}
+const withOpener = (open: boolean) => <ToastProvider><Probe /><Opener open={open} /></ToastProvider>
 
 describe('ToastProvider', () => {
   beforeEach(() => {
@@ -33,14 +40,14 @@ describe('ToastProvider', () => {
   it('keeps its live region in the page between toasts, so assistive technology announces the first one too', () => {
     // A live region that is inserted together with its text is often not announced.
     const { container } = setup()
-    const region = document.querySelector('[aria-live="polite"]')
-    expect(region).toBeInTheDocument()
+    const region = screen.getByTestId('toast-region')
+    expect(region).toHaveAttribute('aria-live', 'polite')
     expect(region).toBeEmptyDOMElement()
     expect(container).toBeEmptyDOMElement() // none of it in the markup of what the provider wraps
     show('Saved')
     expect(region).toContainElement(toast())
     wait(3000)
-    expect(document.querySelector('[aria-live="polite"]')).toBe(region)
+    expect(screen.getByTestId('toast-region')).toBe(region)
     expect(region).toBeEmptyDOMElement()
   })
 
@@ -61,21 +68,45 @@ describe('ToastProvider', () => {
     expect(toast()).not.toBeInTheDocument()
   })
 
-  it('dismissToast takes the toast away at once, and its action with it', () => {
-    const onAction = vi.fn()
-    setup()
-    show('Deleted', { actionLabel: 'Undo', onAction })
-    act(() => api.dismissToast())
-    expect(toast()).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
-    // A toast shown afterwards keeps its own timer, untouched by the one taken away.
-    wait(1000)
-    show('Saved')
-    wait(2999)
-    expect(toast()).toHaveTextContent('Saved')
-    wait(1)
-    expect(toast()).not.toBeInTheDocument()
-    expect(onAction).not.toHaveBeenCalled()
+  describe('useDismissToastWhenOpened', () => {
+    it('takes a toast with an action away at once as it opens, and its action with it', () => {
+      const onAction = vi.fn()
+      const { rerender } = render(withOpener(false))
+      show('Deleted', { actionLabel: 'Undo', onAction })
+      rerender(withOpener(true))
+      expect(toast()).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+      // A toast shown afterwards keeps its own timer, untouched by the one taken away.
+      wait(1000)
+      show('Saved')
+      wait(2999)
+      expect(toast()).toHaveTextContent('Saved')
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+      expect(onAction).not.toHaveBeenCalled()
+    })
+
+    it('leaves a plain toast up for its 3 s: it lets taps through, and it may say what failed', () => {
+      const { rerender } = render(withOpener(false))
+      show('Could not save: offline')
+      rerender(withOpener(true))
+      expect(toast()).toHaveTextContent('Could not save: offline')
+      wait(2999)
+      expect(toast()).toBeInTheDocument()
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+    })
+
+    it('acts as it opens only, not again while it stays open', () => {
+      const { rerender } = render(withOpener(true))
+      show('Deleted', { actionLabel: 'Undo', onAction: vi.fn() })
+      rerender(withOpener(true))
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+    })
+
+    it('does nothing outside a ToastProvider', () => {
+      expect(() => render(<Opener open />)).not.toThrow()
+    })
   })
 
   it('shows a message for 3 s, without a button', () => {

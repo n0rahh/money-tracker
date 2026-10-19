@@ -280,18 +280,18 @@ describe('activeExpenseBudgets', () => {
 
 describe('budgetProgress', () => {
   // Spec §9: progress is the month total over the limit; the bar is full from 100 % on. Exactly the limit is "at" it,
-  // only more is "over" (both turn the bar the expense colour).
+  // only more is "over" (both turn the bar the expense colour), and only "over" has an overage, in minor units.
   it.each([
-    [0, 50000, 0, 'under'],
-    [25000, 50000, 0.5, 'under'],
-    [49500, 50000, 0.99, 'under'], // 99 %
-    [49999, 50000, 0.99998, 'under'],
-    [50000, 50000, 1, 'at'], // 100 %
-    [50001, 50000, 1, 'over'],
-    [50500, 50000, 1, 'over'], // 101 %
-    [75000, 50000, 1, 'over'],
-  ])('spent %i of %i is a ratio of %f, %s the limit', (spent, budget, ratio, state) => {
-    expect(budgetProgress(spent, budget)).toEqual({ ratio, state })
+    [0, 50000, 0, 'under', 0],
+    [25000, 50000, 0.5, 'under', 0],
+    [49500, 50000, 0.99, 'under', 0], // 99 %
+    [49999, 50000, 0.99998, 'under', 0],
+    [50000, 50000, 1, 'at', 0], // 100 %
+    [50001, 50000, 1, 'over', 1], // one minor unit past it
+    [50500, 50000, 1, 'over', 500], // 101 %
+    [75000, 50000, 1, 'over', 25000],
+  ])('spent %i of %i is a ratio of %f, %s the limit, %i past it', (spent, budget, ratio, state, overage) => {
+    expect(budgetProgress(spent, budget)).toEqual({ ratio, state, overage })
   })
 })
 

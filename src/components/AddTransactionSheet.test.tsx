@@ -281,6 +281,19 @@ describe('AddTransactionSheet', () => {
     expect(restoreTransaction).not.toHaveBeenCalled()
   })
 
+  it('leaves a failure on screen as the form opens: it takes no taps, and the owner should still read it', async () => {
+    deleteTransaction.mockImplementation(() => Promise.reject(new FirebaseError('permission-denied', 'Missing or insufficient permissions.')))
+    const user = userEvent.setup()
+    setup()
+    await user.click(screen.getByText('open-edit'))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    const denied = "Could not delete: You don't have access to this data (signed in with the wrong account?)"
+    expect(await screen.findByText(denied)).toBeInTheDocument() // in place of the Undo toast
+    await user.click(screen.getByText('open-add'))
+    expect(screen.getByRole('dialog', { name: 'Add' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(denied)
+  })
+
   it('still reports a failure that arrives while the form is open, and keeps it up as the form is used', async () => {
     let failDelete: (e: Error) => void = () => {}
     deleteTransaction.mockImplementation(() => new Promise<void>((_, reject) => { failDelete = reject }))

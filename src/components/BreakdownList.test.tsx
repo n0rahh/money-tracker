@@ -86,14 +86,14 @@ describe('BreakdownList', () => {
     })
 
     it.each([
-      { pct: '101 %', total: 50500, text: 'PLN 505.00 of PLN 500.00 · PLN 5.00 over', heard: ', over budget' },
-      { pct: '150 %', total: 75000, text: 'PLN 750.00 of PLN 500.00 · PLN 250.00 over', heard: ', over budget' },
-      { pct: '100 %', total: 50000, text: 'PLN 500.00 of PLN 500.00 · at limit', heard: ', at the limit' },
-    ])('says where a row at $pct stands against its budget, to assistive tech too', ({ total, text, heard }) => {
+      { pct: '101 %', total: 50500, text: 'PLN 505.00 of PLN 500.00 · PLN 5.00 over' },
+      { pct: '150 %', total: 75000, text: 'PLN 750.00 of PLN 500.00 · PLN 250.00 over' },
+      { pct: '100 %', total: 50000, text: 'PLN 500.00 of PLN 500.00 · at limit' },
+    ])('says in words where a row at $pct stands against its budget, once, for the eye and assistive tech alike', ({ total, text }) => {
       render(<BreakdownList rows={coffeeAt(total)} byId={byId} currency="PLN" locale="en" budgets={budgets} />)
-      const line = screen.getByText(text) // its own text; the sr-only part is a child of it
-      expect(within(line).getByText(heard)).toHaveClass('sr-only')
-      expect(textOf(line)).toBe(`${text}${heard}`)
+      const line = screen.getByText(text)
+      expect(textOf(line)).toBe(text) // nothing hidden repeats it ("over, over budget")
+      expect(line.children).toHaveLength(0)
     })
 
     it('says nothing about the limit while a row is under its budget', () => {

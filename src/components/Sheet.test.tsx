@@ -2,11 +2,13 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState, type ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { ToastProvider, useToast } from '../context/ToastContext'
 import { Sheet } from './Sheet'
 
 /** The scrim is rendered immediately before the dialog inside the overlay. */
 const scrimOf = (dialog: HTMLElement) => dialog.previousElementSibling as HTMLElement
 
+// Rendered bare unless a test says otherwise: a sheet needs no ToastProvider.
 describe('Sheet', () => {
   it('renders nothing when closed', () => {
     const { container } = render(<Sheet open={false} title="Title" onClose={() => {}}>Body</Sheet>)
@@ -165,6 +167,59 @@ describe('Sheet', () => {
       await user.type(input, 'abc')
       expect(input).toHaveValue('abc')
       expect(input).toHaveFocus()
+    })
+  })
+
+  describe('opened under a toast', () => {
+    /** A page that shows a toast, with an Undo or without, and opens a sheet whose field re-renders the page as it is typed in. */
+    function PageWithToasts() {
+      const { showToast } = useToast()
+      const [open, setOpen] = useState(false)
+      const [note, setNote] = useState('')
+      return (
+        <>
+          <button type="button" onClick={() => showToast('Deleted', { actionLabel: 'Undo', onAction: () => {} })}>Delete</button>
+          <button type="button" onClick={() => showToast('Could not save: offline')}>Fail</button>
+          <button type="button" onClick={() => setOpen(true)}>Open</button>
+          <Sheet open={open} title="Title" onClose={() => setOpen(false)}>
+            <input aria-label="Note" value={note} onChange={(e) => setNote(e.target.value)} />
+          </Sheet>
+        </>
+      )
+    }
+    const setup = () => {
+      render(<ToastProvider><PageWithToasts /></ToastProvider>)
+      return userEvent.setup()
+    }
+
+    it('takes a pending Undo toast away: drawn over the sheet, its button would take the taps meant for the sheet', async () => {
+      const user = setup()
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Open' }))
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+    })
+
+    it('leaves a plain toast up: it lets taps through, and it may say what failed', async () => {
+      const user = setup()
+      await user.click(screen.getByRole('button', { name: 'Fail' }))
+      await user.click(screen.getByRole('button', { name: 'Open' }))
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent('Could not save: offline')
+    })
+
+    it('does so as it opens only: an Undo toast that comes while it is open stays as the sheet is used, until the next opening', async () => {
+      const user = setup()
+      await user.click(screen.getByRole('button', { name: 'Open' }))
+      await user.click(screen.getByRole('button', { name: 'Delete' }))
+      await user.type(screen.getByRole('textbox', { name: 'Note' }), 'abc')
+      expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+      await user.keyboard('{Escape}')
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Open' }))
+      expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
     })
   })
 })

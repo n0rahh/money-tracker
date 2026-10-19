@@ -58,13 +58,23 @@ describe('matchesSearch', () => {
 describe('matchingCaption', () => {
   const money = (minor: number) => `€${(minor / 100).toFixed(2)}`
 
-  it('counts the matching entries and adds up their amounts', () => {
-    expect(matchingCaption(1, { expense: 420, income: 0 }, money)).toBe('1 matching entry · €4.20')
-    expect(matchingCaption(3, { expense: 5770, income: 0 }, money)).toBe('3 matching entries · €57.70')
-    expect(matchingCaption(1, { expense: 0, income: 300000 }, money)).toBe('1 matching entry · €3000.00')
+  it('counts the matching entries and adds up their amounts, signed as the day headers sign theirs', () => {
+    expect(matchingCaption(1, { expense: 420, income: 0 }, money)).toBe('1 matching entry ·\u00a0−€4.20')
+    expect(matchingCaption(3, { expense: 5770, income: 0 }, money)).toBe('3 matching entries ·\u00a0−€57.70')
+    // Income alone does not read like a spend.
+    expect(matchingCaption(1, { expense: 0, income: 300000 }, money)).toBe('1 matching entry ·\u00a0+€3000.00')
   })
 
-  it('keeps the kinds apart when both match, as the day headers do, never netted and on one line together', () => {
-    expect(matchingCaption(3, { expense: 770, income: 300000 }, money)).toBe('3 matching entries · −€7.70\u00a0+€3000.00')
+  it('keeps the kinds apart when both match, as the day headers do, never netted', () => {
+    expect(matchingCaption(3, { expense: 770, income: 300000 }, money)).toBe('3 matching entries ·\u00a0−€7.70\u00a0+€3000.00')
+  })
+
+  it('breaks a caption too long for a phone before the dot, never after it: the dot stays with the totals', () => {
+    // Only the spaces of the count may break the line.
+    expect(matchingCaption(42, { expense: 183520, income: 1330000 }, money).split(' ')).toEqual(['42', 'matching', 'entries', '·\u00a0−€1835.20\u00a0+€13300.00'])
+  })
+
+  it('shows a plain zero for entries without an amount, which only a hand edit in the console leaves', () => {
+    expect(matchingCaption(1, { expense: 0, income: 0 }, money)).toBe('1 matching entry ·\u00a0€0.00')
   })
 })
