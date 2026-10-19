@@ -1,13 +1,16 @@
 import { Timestamp } from 'firebase/firestore'
 import { isColorKey } from './categoryColors'
 import { FALLBACK_ICON, isIconKey } from './categoryIcons'
-import { parseIsoDate, todayIso } from './dates'
-import type { Category, IsoDate, Kind, Settings, Transaction } from './types'
+import { currentMonth, isIsoMonth, parseIsoDate, todayIso } from './dates'
+import type { Budget, Category, IsoDate, IsoMonth, Kind, RecurringTemplate, Settings, Transaction } from './types'
 
 type Data = Record<string, unknown>
 
 const asKind = (v: unknown): Kind => (v === 'income' ? 'income' : 'expense')
 const asTimestamp = (v: unknown): Timestamp | undefined => (v instanceof Timestamp ? v : undefined)
+const asMinorUnits = (v: unknown): number => (typeof v === 'number' ? Math.round(v) : 0)
+const asMonth = (v: unknown): IsoMonth | null => (typeof v === 'string' && isIsoMonth(v) ? v : null)
+const asDayOfMonth = (v: unknown): number => (typeof v === 'number' && !Number.isNaN(v) ? Math.min(31, Math.max(1, Math.round(v))) : 1)
 
 export function mapCategory(id: string, data: Data): Category {
   return {
@@ -29,12 +32,34 @@ export function mapTransaction(id: string, data: Data): Transaction {
   return {
     id,
     kind: asKind(data.kind),
-    amount: typeof data.amount === 'number' ? Math.round(data.amount) : 0,
+    amount: asMinorUnits(data.amount),
     categoryId: typeof data.categoryId === 'string' ? data.categoryId : '',
     note: typeof data.note === 'string' ? data.note : '',
     date,
     at: asTimestamp(data.at) ?? Timestamp.fromDate(parseIsoDate(date)),
     source,
+    ...(typeof data.recurringId === 'string' && data.recurringId !== '' ? { recurringId: data.recurringId } : {}),
+    createdAt: asTimestamp(data.createdAt),
+    updatedAt: asTimestamp(data.updatedAt),
+  }
+}
+
+/** A limit that is missing or not a number comes out as 0, which no budget can be: callers treat it as "no budget". */
+export function mapBudget(categoryId: string, data: Data): Budget {
+  return { categoryId, monthly: asMinorUnits(data.monthly) }
+}
+
+export function mapRecurring(id: string, data: Data): RecurringTemplate {
+  return {
+    id,
+    kind: asKind(data.kind),
+    amount: asMinorUnits(data.amount),
+    categoryId: typeof data.categoryId === 'string' ? data.categoryId : '',
+    note: typeof data.note === 'string' ? data.note : '',
+    dayOfMonth: asDayOfMonth(data.dayOfMonth),
+    startMonth: asMonth(data.startMonth) ?? currentMonth(),
+    endMonth: asMonth(data.endMonth),
+    lastAppliedMonth: asMonth(data.lastAppliedMonth),
     createdAt: asTimestamp(data.createdAt),
     updatedAt: asTimestamp(data.updatedAt),
   }

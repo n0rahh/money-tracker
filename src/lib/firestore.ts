@@ -16,11 +16,13 @@ import {
 } from 'firebase/firestore'
 import { DEFAULT_CATEGORIES } from './defaultCategories'
 import { db } from './firebase'
-import { mapCategory, mapSettings, mapTransaction, transactionAt } from './mappers'
-import type { Category, CategoryInput, IsoDate, Settings, Transaction, TransactionInput } from './types'
+import { mapBudget, mapCategory, mapRecurring, mapSettings, mapTransaction, transactionAt } from './mappers'
+import type { Category, CategoryInput, IsoDate, RecurringInput, RecurringTemplate, Settings, Transaction, TransactionInput } from './types'
 
 const categoriesCol = () => collection(db, 'categories')
 const transactionsCol = () => collection(db, 'transactions')
+const budgetsCol = () => collection(db, 'budgets')
+const recurringCol = () => collection(db, 'recurring')
 const settingsDoc = () => doc(db, 'settings', 'main')
 
 // ---- categories ----
@@ -95,6 +97,8 @@ function transactionData(input: TransactionInput) {
     note: input.note,
     date: input.date,
     at: transactionAt(input),
+    // Left out, never `undefined` (Firestore refuses it), for an entry that does not come from a template.
+    ...(input.recurringId ? { recurringId: input.recurringId } : {}),
   }
 }
 
@@ -110,6 +114,61 @@ export function updateTransaction(id: string, input: TransactionInput): Promise<
 
 export function deleteTransaction(id: string): Promise<void> {
   return deleteDoc(doc(db, 'transactions', id))
+}
+
+// ---- budgets ----
+
+/**
+ * The monthly limit of every category that has one, by category id. Every value is a whole number above 0: a document
+ * without a usable limit is left out, so a consumer that divides by a budget never divides by 0.
+ */
+export function subscribeBudgets(onData: (budgets: Map<string, number>) => void, onError?: (e: Error) => void): Unsubscribe {
+  return onSnapshot(
+    budgetsCol(),
+    (snap) => {
+      const budgets = new Map<string, number>()
+      for (const d of snap.docs) {
+        const { categoryId, monthly } = mapBudget(d.id, d.data())
+        if (monthly > 0) budgets.set(categoryId, monthly)
+      }
+      onData(budgets)
+    },
+    (e) => onError?.(e),
+  )
+}
+
+/** Sets the monthly limit of a category (whole minor units above 0), or removes it when `monthly` is null. */
+export function setBudget(categoryId: string, monthly: number | null): Promise<void> {
+  const ref = doc(db, 'budgets', categoryId)
+  return monthly === null ? deleteDoc(ref) : setDoc(ref, { monthly, updatedAt: serverTimestamp() })
+}
+
+// ---- recurring ----
+
+/** Sorted here, by start month and then day, rather than by the query: ordering by two fields would need a new index. */
+export function subscribeRecurring(onData: (templates: RecurringTemplate[]) => void, onError?: (e: Error) => void): Unsubscribe {
+  return onSnapshot(
+    recurringCol(),
+    (snap) => {
+      const templates = snap.docs.map((d) => mapRecurring(d.id, d.data()))
+      onData(templates.sort((a, b) => a.startMonth.localeCompare(b.startMonth) || a.dayOfMonth - b.dayOfMonth))
+    },
+    (e) => onError?.(e),
+  )
+}
+
+export function createRecurring(input: RecurringInput): { id: string; done: Promise<void> } {
+  const ref = doc(recurringCol())
+  const done = setDoc(ref, { ...input, lastAppliedMonth: null, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
+  return { id: ref.id, done }
+}
+
+export function updateRecurring(id: string, patch: Partial<RecurringInput>): Promise<void> {
+  return updateDoc(doc(db, 'recurring', id), { ...patch, updatedAt: serverTimestamp() })
+}
+
+export function deleteRecurring(id: string): Promise<void> {
+  return deleteDoc(doc(db, 'recurring', id))
 }
 
 // ---- settings ----
