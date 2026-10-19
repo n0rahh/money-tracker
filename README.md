@@ -13,6 +13,9 @@ Same stack and shape as [n0rahh/food-tracker](https://github.com/n0rahh/food-tra
 |---|---|
 | [Design spec](docs/superpowers/specs/2026-10-14-money-tracker-design.md) | The whole product: decisions, architecture, data model, screens, design system, analytics definitions, roadmap, Watch recipe |
 | [Milestone 1 plan](docs/superpowers/plans/2026-10-14-m1-core-logging.md) | The executed implementation plan for the first shippable version (code blocks synced through Task 16; the final review's fixes, such as the sync badge, month follow-on-resume and the error boundary, are described in the spec) |
+| [Milestone 2 plan](docs/superpowers/plans/2026-10-17-m2-insights.md) | The executed plan for Trends, Compare, the category page, the pace line, the daily strip and the suggestion chips |
+| [Milestone 3 plan](docs/superpowers/plans/2026-10-17-m3-power.md) | The executed plan for budgets, recurring entries, search, the month picker, undo, export/import and the lazy pages; its "Deviations accepted in execution" block says where the code differs from its task text |
+| Rulings: [M1](docs/m1-rulings.md), [M2](docs/m2-rulings.md), [M3](docs/m3-rulings.md) | The decisions taken on the owner's behalf while executing each plan, in order, each with what it costs if wrong |
 | [Device checklist](docs/device-checklist.md) | First-deploy steps and the iPhone verification list |
 
 ## Decisions in one screen
@@ -23,7 +26,7 @@ Same stack and shape as [n0rahh/food-tracker](https://github.com/n0rahh/food-tra
 - **Security = Firestore rules.** Every read/write requires `email == vlad.herasymovychh@gmail.com` and `email_verified`, plus schema validation. The UI check is cosmetic. Rules are tested against the Firestore emulator.
 - **Google sign-in with a popup everywhere.** Verified to work inside the installed home-screen app with food-tracker, so no redirect flow and no custom auth domain.
 - **Integers for money, ISO strings for dates.** `amount` in minor units with a static ISO 4217 digits table (never the browser's locale data, which differs between devices); `date` as local `YYYY-MM-DD`; one composite index (`date DESC, at DESC`).
-- **Never wait for the network.** Writes are applied to the local cache first; sheets close immediately and failures surface as toasts. A "Syncing…" pill shows while writes are pending.
+- **Never wait for the network.** Writes are applied to the local cache first; sheets close immediately and failures surface as toasts. A "Syncing…" pill shows while writes are pending. The one write the app waits for is a CSV import, which shows its progress.
 
 ## Local development
 
@@ -48,8 +51,9 @@ The Auth emulator's "Add new account" screen accepts the owner email; the rules 
 npm run typecheck
 npm run lint
 npm test                      # Vitest + Testing Library (jsdom)
-export PATH="/opt/homebrew/opt/openjdk/bin:$PATH" && npm run test:rules   # Firestore rules against the emulator
-npm run build                 # warning-free; JS ≤ 350 kB gzipped
+npm run test:scripts          # node:test for scripts/ (the .mmbak dump)
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH" && npm run test:rules   # 4 files against the emulator: the rules, and the app's own writes and reads
+npm run build                 # warning-free; first paint ≈ 302 kB gzipped (budget 320), all JS ≈ 323 kB (budget 350)
 ```
 
 ## Deploy
@@ -61,11 +65,29 @@ npm run deploy                                                       # build + h
 
 The build inlines `.env.local`, so it must hold the real config (and `VITE_USE_EMULATORS=0`) before deploying. Production builds never include the emulator hookup. Follow [docs/device-checklist.md](docs/device-checklist.md) for the first deploy and the iPhone verification.
 
+`npm run deploy` ships the rules together with hosting, and Milestone 3 needs that: its client reads `budgets` and writes `recurring`, which the M2 rules deny. Never deploy hosting alone. The M2 client works with the M3 rules, so the rules may also go first.
+
+## Backups and import
+
+Settings → Data has Export CSV, Export JSON and Import CSV. Exports read from the server, so they need a connection (offline they fail rather than save part of the data). On the iPhone the file goes to the share sheet (Save to Files); on a computer it downloads.
+
+- **Export JSON** is the full backup: categories, budgets, recurring templates and every entry. There is no JSON importer yet, so restoring one is a manual job.
+- **Export CSV** holds the entries only (`id,date,kind,amount,currency,category,note,source`), for a spreadsheet.
+- **Import CSV** takes any CSV with a header row and lets you match its columns; a Money Manager CSV export works as it is. Importing the same file again overwrites instead of doubling, and re-importing the app's own CSV export puts every entry back under its own id, so the count does not change. A CSV restores entries only: icons, colours, budgets and templates are not in it.
+
+A Money Manager `.mmbak` backup is an SQLite database. To see what is in it, dump every table to a CSV with Node ≥ 24.12 (nothing is converted, nothing goes to Firestore):
+
+```bash
+node scripts/mmbak-dump.mjs <file.mmbak> <outDir>   # one <table>.csv per table, with row counts; exit 1 if not SQLite or not readable/writable, 2 for wrong arguments
+```
+
+Keep the backup and the dump under `imports/` (for example `node scripts/mmbak-dump.mjs imports/backup.mmbak imports/backup-tables`): the folder is git-ignored, and both are personal data.
+
 ## Roadmap
 
 | Milestone | Scope |
 |---|---|
 | M1 (implemented; first deploy and the iPhone checklist pending) | Sign-in, categories (seeded + editable), add/edit/delete with keypad, month view, PWA, deploy |
 | M2 (implemented) | Trends (monthly bars, ranges, category filter), compare two months, category detail, pace line, daily strip, suggestion chips |
-| M3 | Budgets, recurring transactions, search, month picker, export/import (Money Manager backup), undo, perf pass |
+| M3 (implemented) | Budgets, recurring transactions, search, month picker, export/import (Money Manager backup), undo, perf pass |
 | M4 | Siri + Apple Watch quick add through a Shortcut |
