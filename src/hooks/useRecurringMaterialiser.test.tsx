@@ -3,6 +3,7 @@ import { FirebaseError } from 'firebase/app'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
+import { mapRecurring } from '../lib/mappers'
 import type { RecurringTemplate } from '../lib/types'
 import { useRecurringMaterialiser } from './useRecurringMaterialiser'
 
@@ -136,6 +137,19 @@ describe('useRecurringMaterialiser', () => {
     expect(materialiseRecurring).toHaveBeenCalledTimes(1)
     expect(materialiseRecurring).toHaveBeenCalledWith(RENT, ['2026-09', '2026-10'])
   })
+
+  it.each(['2026/08', '2026-8', 202608])(
+    'sends nothing for a template whose lastAppliedMonth reads %j (a hand edit), rather than writing every month again from its start',
+    (typo) => {
+      // As the app reads such a document: the month as stored, not "never applied", which would owe January to October.
+      const { id: _id, ...fields } = RENT
+      const edited = mapRecurring('r7', { ...fields, lastAppliedMonth: typo })
+      withTemplates({ templates: [edited, NETFLIX] })
+      mount()
+      expect(materialiseRecurring).toHaveBeenCalledTimes(1)
+      expect(materialiseRecurring).toHaveBeenCalledWith(NETFLIX, ['2026-10'])
+    },
+  )
 
   it('picks up a new month when the app comes back to the foreground in it, once', () => {
     vi.setSystemTime(new Date(2026, 9, 31, 23, 50))

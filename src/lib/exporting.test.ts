@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase/firestore'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parseCsv } from './csv'
 import { buildCsvExport, buildJsonExport, exportFileName, shareOrDownload } from './exporting'
+import { mapTransaction } from './mappers'
 import type { Budget, Category, RecurringTemplate, Transaction } from './types'
 
 const BOM = '\uFEFF'
@@ -13,6 +14,8 @@ const GROCERIES: Category = { id: 'groceries', name: 'Groceries', icon: 'Shoppin
 const HOBBY: Category = { id: 'hobby', name: 'Old hobby', icon: 'Palette', color: 'violet', kind: 'expense', order: 9, archived: true }
 const SALARY: Category = { id: 'salary', name: 'Salary', icon: 'Banknote', color: 'emerald', kind: 'income', order: 0, archived: false }
 const BY_ID = new Map([GROCERIES, HOBBY, SALARY].map((c) => [c.id, c]))
+/** As the app reads an entry made by hand in the console with an unreadable date and no time: its `at` is a Timestamp of NaN. */
+const BY_HAND = mapTransaction('by-hand', { kind: 'expense', amount: 5, categoryId: 'c', date: 'abc' })
 
 const tx = (over: Partial<Transaction> & Pick<Transaction, 'id'>): Transaction => ({
   kind: 'expense',
@@ -68,6 +71,10 @@ describe('buildCsvExport', () => {
     expect(parseCsv(buildCsvExport([early, late], BY_ID, 'PLN')).map((r) => r[0])).toEqual(['id', 'a-late', 'z-early'])
   })
 
+  it('exports an entry whose time is no moment as it is: the CSV never reads the moment', () => {
+    expect(parseCsv(buildCsvExport([BY_HAND], BY_ID, 'PLN'))[1]).toEqual(['by-hand', 'abc', 'expense', '0.05', 'PLN', 'Uncategorized', '', 'app'])
+  })
+
   it('is the header alone without entries', () => {
     expect(buildCsvExport([], BY_ID, 'PLN')).toBe(`${BOM}id,date,kind,amount,currency,category,note,source\r\n`)
   })
@@ -119,6 +126,14 @@ describe('buildJsonExport', () => {
         },
       ],
     })
+  })
+
+  it('writes a time that is no moment as null, so one entry made by hand cannot stop the whole backup', () => {
+    const backup = JSON.parse(buildJsonExport({ transactions: [BY_HAND, SHOP], categories: [], budgets: [], recurring: [], currency: 'PLN' }, NOW)) as {
+      transactions: { id: string; at: unknown }[]
+    }
+    // 'abc' sorts after '2026-10-14': newest first, as ever.
+    expect(backup.transactions.map((t) => [t.id, t.at])).toEqual([['by-hand', null], ['t1', '2026-10-14T07:00:00.000Z']])
   })
 
   it('puts the short sections first and the entries last', () => {

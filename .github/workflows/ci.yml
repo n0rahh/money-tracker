@@ -30,3 +30,12 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm run test:rules
+      # The production build (tsc, then Vite and the PWA plugin), so a build or bundling break fails here rather than at
+      # deploy time. CI has no .env.local: placeholder Firebase settings stand in for it, so the app is built configured.
+      - run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ci
+          VITE_FIREBASE_AUTH_DOMAIN: ci.localhost
+          VITE_FIREBASE_PROJECT_ID: demo-money-tracker
+          VITE_FIREBASE_APP_ID: ci
+          VITE_USE_EMULATORS: '0'

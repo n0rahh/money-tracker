@@ -6,7 +6,7 @@ export type ToastOptions = {
   actionLabel?: string
   /** Runs on the first tap of the button, which also dismisses the toast; never more than once. */
   onAction?: () => void
-  /** How long the toast stays: 3 s by default, 6 s when it offers an action. */
+  /** How long the toast stays: 3 s by default, 6 s when it offers an action. A toast with an action waits while it is in use. */
   durationMs?: number
 }
 type ToastApi = {
@@ -27,12 +27,46 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const timer = useRef<number | undefined>(undefined)
   // Whether the toast on screen offers an action, for dismissActionToast, which keeps one identity from toast to toast.
   const offersAction = useRef(false)
+  // A toast with an action waits while the pointer is over it or the keyboard focus is in it, so its button can still be
+  // reached (WCAG 2.2.1): what holds it now, when its time runs out (on performance.now(), a clock that never jumps), and,
+  // while it is held, the time it has left.
+  const held = useRef({ pointer: false, focus: false })
+  const endsAt = useRef(0)
+  const timeLeft = useRef<number | null>(null)
 
   const dismiss = useCallback(() => {
     window.clearTimeout(timer.current)
     offersAction.current = false
+    held.current = { pointer: false, focus: false }
+    timeLeft.current = null
     setToast(null)
   }, [])
+
+  /** Lets the toast's time run: it goes in `ms`. */
+  const runFor = useCallback(
+    (ms: number) => {
+      window.clearTimeout(timer.current)
+      timeLeft.current = null
+      endsAt.current = performance.now() + ms
+      timer.current = window.setTimeout(dismiss, ms)
+    },
+    [dismiss],
+  )
+
+  /** The pointer or the focus comes to the toast (`on`) or leaves it: its time stops while either is there, and runs on once both have gone. */
+  const hold = useCallback(
+    (by: 'pointer' | 'focus', on: boolean) => {
+      held.current = { ...held.current, [by]: on }
+      const isHeld = held.current.pointer || held.current.focus
+      if (isHeld && timeLeft.current === null) {
+        window.clearTimeout(timer.current)
+        timeLeft.current = Math.max(0, endsAt.current - performance.now())
+      } else if (!isHeld && timeLeft.current !== null) {
+        runFor(timeLeft.current)
+      }
+    },
+    [runFor],
+  )
 
   // One toast at a time: a new one replaces the one on screen, with its action and its timer.
   const showToast = useCallback(
@@ -52,10 +86,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           : null
       setToast({ message, action })
       offersAction.current = action !== null
-      window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(dismiss, durationMs ?? (action ? ACTION_DURATION_MS : DURATION_MS))
+      const ms = durationMs ?? (action ? ACTION_DURATION_MS : DURATION_MS)
+      // A plain toast takes neither the pointer nor the focus: whatever held the toast before it has let go.
+      if (!action) held.current = { pointer: false, focus: false }
+      if (held.current.pointer || held.current.focus) {
+        // Drawn where the held one was, under the same pointer or focus: its own time starts once they leave.
+        window.clearTimeout(timer.current)
+        timeLeft.current = ms
+      } else {
+        runFor(ms)
+      }
     },
-    [dismiss],
+    [dismiss, runFor],
   )
 
   const dismissActionToast = useCallback(() => {
@@ -75,8 +117,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         <div data-testid="toast-region" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4">
           {toast ? (
             toast.action ? (
-              // Takes its own taps, so a near miss of the button does not fall through to the page beneath.
-              <div role="status" className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-surface-2 pl-4 pr-1 text-sm text-text shadow-lg">
+              // Takes its own taps, so a near miss of the button does not fall through to the page beneath; waits while in use.
+              <div
+                role="status"
+                onPointerEnter={() => hold('pointer', true)}
+                onPointerLeave={() => hold('pointer', false)}
+                onFocus={() => hold('focus', true)}
+                onBlur={() => hold('focus', false)}
+                className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-surface-2 pl-4 pr-1 text-sm text-text shadow-lg"
+              >
                 <span className="py-2">{toast.message}</span>
                 <button type="button" onClick={toast.action.run} className="min-h-11 rounded-full px-4 font-semibold text-accent">
                   {toast.action.label}

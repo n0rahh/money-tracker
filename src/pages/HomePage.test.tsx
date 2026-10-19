@@ -980,6 +980,22 @@ describe('HomePage', () => {
         expect(breakdownRows()).toEqual(['Groceries€50.0087%new', 'Coffee€7.7013%+54 %'])
       })
 
+      it('keeps the budget line on the whole month too, whatever the search narrows the days to', async () => {
+        withBudgets([[COFFEE.id, 1000]])
+        const user = userEvent.setup()
+        render(page())
+        showBothMonths()
+        const budgetLine = () => within(screen.getByText('Spent').closest('section') as HTMLElement).getByText(/^Budgets: /)
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €10\.00$/)
+        await user.click(searchButton())
+        await user.type(field(), 'latte')
+        expect(entries()).toEqual(['Coffeeoat latte€4.20'])
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €10\.00$/) // both coffees, not the €4.20 of the one that matches
+        await user.click(kind('Income'))
+        expect(entries()).toEqual([])
+        expect(budgetLine()).toHaveTextContent(/^Budgets: €7\.70 of €10\.00$/)
+      })
+
       it('shows the whole month again once closed, and opens empty the next time', async () => {
         const user = userEvent.setup()
         render(page())

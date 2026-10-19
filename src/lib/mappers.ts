@@ -1,7 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
 import { isColorKey } from './categoryColors'
 import { FALLBACK_ICON, isIconKey } from './categoryIcons'
-import { currentMonth, isIsoMonth, parseIsoDate, todayIso } from './dates'
+import { parseIsoDate, todayIso } from './dates'
 import type { Budget, Category, IsoDate, IsoMonth, Kind, RecurringTemplate, Settings, Transaction } from './types'
 
 type Data = Record<string, unknown>
@@ -9,7 +9,12 @@ type Data = Record<string, unknown>
 const asKind = (v: unknown): Kind => (v === 'income' ? 'income' : 'expense')
 const asTimestamp = (v: unknown): Timestamp | undefined => (v instanceof Timestamp ? v : undefined)
 const asMinorUnits = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 0)
-const asMonth = (v: unknown): IsoMonth | null => (typeof v === 'string' && isIsoMonth(v) ? v : null)
+/**
+ * A template's endMonth or lastAppliedMonth as stored, never repaired: null (or no field) is "no end" or "never applied",
+ * any other value its own text, so a malformed month makes the template invalid (isMaterialisable) instead of reading as
+ * "never applied", which would write every month again from startMonth.
+ */
+const asStoredMonth = (v: unknown): IsoMonth | null => (v === null || v === undefined ? null : String(v))
 const asDayOfMonth = (v: unknown): number => (typeof v === 'number' && !Number.isNaN(v) ? Math.min(31, Math.max(1, Math.round(v))) : 1)
 
 export function mapCategory(id: string, data: Data): Category {
@@ -57,9 +62,10 @@ export function mapRecurring(id: string, data: Data): RecurringTemplate {
     categoryId: typeof data.categoryId === 'string' ? data.categoryId : '',
     note: typeof data.note === 'string' ? data.note : '',
     dayOfMonth: asDayOfMonth(data.dayOfMonth),
-    startMonth: asMonth(data.startMonth) ?? currentMonth(),
-    endMonth: asMonth(data.endMonth),
-    lastAppliedMonth: asMonth(data.lastAppliedMonth),
+    // The three months as stored (see asStoredMonth); a startMonth that is no text is none.
+    startMonth: typeof data.startMonth === 'string' ? data.startMonth : '',
+    endMonth: asStoredMonth(data.endMonth),
+    lastAppliedMonth: asStoredMonth(data.lastAppliedMonth),
     createdAt: asTimestamp(data.createdAt),
     updatedAt: asTimestamp(data.updatedAt),
   }

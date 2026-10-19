@@ -5,6 +5,7 @@ import { Timestamp } from 'firebase/firestore'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '../context/ToastContext'
+import { mapRecurring } from '../lib/mappers'
 import type { Category, RecurringTemplate } from '../lib/types'
 import { RecurringPage } from './RecurringPage'
 
@@ -225,6 +226,28 @@ describe('RecurringPage', () => {
     expect(within(broken).queryByRole('button', { name: /^Stop/ })).not.toBeInTheDocument()
     await user.click(within(broken).getByRole('button', { name: 'Delete template Housing (typo)' }))
     expect(deleteRecurring).toHaveBeenCalledWith('r4')
+    expect(screen.getByRole('status')).toHaveTextContent('Template deleted')
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it('shows a template whose months were mistyped by hand as invalid, with Delete only, and draws the rest of the list', async () => {
+    // As the app reads such documents: the months as stored, which name no month to print.
+    const base = { kind: 'expense', amount: 4_900, categoryId: 'sport', dayOfMonth: 3, lastAppliedMonth: null }
+    const badStart = mapRecurring('r6', { ...base, note: 'Swim', startMonth: '2026/10', endMonth: null })
+    const badEnd = mapRecurring('r7', { ...base, note: 'Climb', startMonth: '2026-01', endMonth: 'x' })
+    withTemplates([RENT, badStart, badEnd])
+    const user = userEvent.setup()
+    page()
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+    expect(within(rowOf('Flat')).getByText('Every month on day 1 · since January 2026')).toBeInTheDocument()
+    for (const note of ['Swim', 'Climb']) {
+      const row = rowOf(note)
+      expect(within(row).getByText('Invalid template')).toBeInTheDocument()
+      expect(within(row).queryByText(/^Every month/)).not.toBeInTheDocument()
+      expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['Delete template'])
+    }
+    await user.click(screen.getByRole('button', { name: 'Delete template Sport (Climb)' }))
+    expect(deleteRecurring).toHaveBeenCalledWith('r7')
     expect(screen.getByRole('status')).toHaveTextContent('Template deleted')
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
   })

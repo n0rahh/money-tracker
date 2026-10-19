@@ -388,6 +388,23 @@ describe('ImportSheet', () => {
       await chooseFile('Date,Category,Amount\n2026-10-14,Food,-1\n25/12/2026,Food,-2\n05/05/2026,Food,-3\n')
       expect(screen.queryByLabelText('Slash dates')).not.toBeInTheDocument()
     })
+
+    it('starts afresh when another file is chosen: a choice made for one file is not carried to the next', async () => {
+      const user = await chooseFile('Date,Category,Amount\n03/04/2026,Food,-1\n')
+      await user.selectOptions(screen.getByLabelText('Slash dates'), 'Month first (MM/DD)')
+      expect(screen.getByLabelText('Slash dates')).toHaveDisplayValue('Month first (MM/DD)')
+      await user.upload(screen.getByLabelText('CSV file'), csvFile('Date,Category,Amount\n05/06/2026,Food,-2\n', 'second.csv'))
+      expect(await screen.findByText('05/06/2026 reads as Jun 5, 2026.')).toBeInTheDocument()
+      expect(screen.getByLabelText('Slash dates')).toHaveDisplayValue('Day first (DD/MM)')
+    })
+
+    it('starts afresh when another column is chosen for the date', async () => {
+      const user = await chooseFile('Date,Booked,Category,Amount\n03/04/2026,05/06/2026,Food,-1\n')
+      await user.selectOptions(screen.getByLabelText('Slash dates'), 'Month first (MM/DD)')
+      await user.selectOptions(screen.getByLabelText('Date'), 'Booked')
+      expect(screen.getByLabelText('Slash dates')).toHaveDisplayValue('Day first (DD/MM)')
+      expect(screen.getByText('05/06/2026 reads as Jun 5, 2026.')).toBeInTheDocument()
+    })
   })
 
   it('says how many notes and category names are cut to fit', async () => {
@@ -402,7 +419,7 @@ describe('ImportSheet', () => {
     expect(screen.queryByText(/shortened/)).not.toBeInTheDocument()
   })
 
-  it("puts the app's own export back under its own ids, and says it replaces those entries", async () => {
+  it("puts the app's own export back under its own ids, and says that entries with those ids are replaced", async () => {
     const own = [
       'id,date,kind,amount,currency,category,note,source',
       'Zp3kQ9aTn1xYb7VdLm2R,2026-10-14,expense,12.50,PLN,Groceries,Milk,app',
@@ -410,7 +427,8 @@ describe('ImportSheet', () => {
       '42,2026-10-02,income,5.00,PLN,Salary,,import',
     ].join('\r\n')
     const user = await chooseFile(own)
-    expect(screen.getByText('2 rows are entries of this app, from its export: they replace those entries instead of adding them again.')).toBeInTheDocument()
+    // True whether or not those entries still exist: a restore into an empty account adds them.
+    expect(screen.getByText("2 rows keep this app's own ids (existing entries with those ids are replaced).")).toBeInTheDocument()
     await user.click(importButton())
     await waitFor(() => expect(importTransactions).toHaveBeenCalled())
     const docs = importTransactions.mock.calls[0][0] as { id: string }[]
@@ -419,9 +437,19 @@ describe('ImportSheet', () => {
     expect(docs.map((d) => d.id)).toEqual(['Zp3kQ9aTn1xYb7VdLm2R', 'rec_Tmpl0123456789abcdef_2026-10', salary])
   })
 
+  it('counts an own id once, as the import keeps it once: its repeat becomes an entry of its own', async () => {
+    const own = [
+      'id,date,kind,amount,currency,category,note,source',
+      'Zp3kQ9aTn1xYb7VdLm2R,2026-10-14,expense,12.50,PLN,Groceries,Milk,app',
+      'Zp3kQ9aTn1xYb7VdLm2R,2026-10-15,expense,3.00,PLN,Groceries,Bread,app',
+    ].join('\r\n')
+    await chooseFile(own)
+    expect(screen.getByText("1 row keeps this app's own id (an existing entry with that id is replaced).")).toBeInTheDocument()
+  })
+
   it('says nothing of own ids for a file from elsewhere', async () => {
     await chooseFile(MONEY_MANAGER)
-    expect(screen.queryByText(/entr(y|ies) of this app/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/own ids?\b/)).not.toBeInTheDocument()
   })
 
   describe('pinned from the review', () => {

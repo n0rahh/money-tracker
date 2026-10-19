@@ -325,8 +325,11 @@ export function ImportSheet({ currency, locale, onClose }: Props) {
             <>
               <p className="mt-4 text-sm">{`${count(ready.length)} of ${count(ready.length + result.errors.length)} rows ready to import.`}</p>
               {ownIds > 0 ? (
+                // Says "existing": true also when those entries are gone, such as a restore into an empty account.
                 <p className="mt-1 text-xs text-muted">
-                  {`${count(ownIds)} ${ownIds === 1 ? 'row is an entry' : 'rows are entries'} of this app, from its export: ${ownIds === 1 ? 'it replaces that entry' : 'they replace those entries'} instead of adding ${ownIds === 1 ? 'it' : 'them'} again.`}
+                  {ownIds === 1
+                    ? "1 row keeps this app's own id (an existing entry with that id is replaced)."
+                    : `${count(ownIds)} rows keep this app's own ids (existing entries with those ids are replaced).`}
                 </p>
               ) : null}
               {result.shortened.notes > 0 ? (

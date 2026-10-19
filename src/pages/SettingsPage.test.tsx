@@ -155,6 +155,18 @@ describe('SettingsPage', () => {
       const link = screen.getByRole('link', { name: /^Recurring/ })
       expect(link).toHaveTextContent(/^Recurring—$/)
     })
+
+    it('shows no number once the templates cannot be read, not the count of a list it may no longer know', () => {
+      // The templates of an earlier snapshot stay in the hook after its listener has failed.
+      useRecurring.mockReturnValue({
+        templates: [running('open', null), running('ends-later', '2099-12')],
+        loading: false,
+        fromCache: false,
+        error: new FirebaseError('permission-denied', 'Missing or insufficient permissions.'),
+      })
+      page()
+      expect(screen.getByRole('link', { name: /^Recurring/ })).toHaveTextContent(/^Recurring—$/)
+    })
   })
 
   describe('currency', () => {

@@ -26,6 +26,7 @@ const RENT: Transaction = {
   updatedAt: Timestamp.fromDate(new Date(2026, 9, 2, 8, 30)),
 }
 const LUNCH: Category = { id: 'c3', name: 'Lunch', icon: 'Utensils', color: 'orange', kind: 'expense', order: 1, archived: false }
+const HOUSING: Category = { id: 'c4', name: 'Housing', icon: 'House', color: 'sky', kind: 'expense', order: 2, archived: false }
 /** Coffee was archived after the flat white was logged; Lunch is still active. */
 const COFFEE_ARCHIVED: Category[] = [{ ...CATS[0], archived: true }, LUNCH, CATS[1]]
 const WITH_LUNCH: Category[] = [CATS[0], LUNCH, CATS[1]]
@@ -39,6 +40,10 @@ const OAT_LATTE: Combo = { kind: 'expense', categoryId: 'c1', amount: 420, note:
 const PAYDAY: Combo = { kind: 'income', categoryId: 'c2', amount: 500_000, note: '' }
 const CANTEEN: Combo = { kind: 'expense', categoryId: 'c3', amount: 1200, note: 'canteen' }
 const SANDWICH: Combo = { kind: 'expense', categoryId: 'c3', amount: 990, note: '' }
+/** The rent a recurring template wrote for the month of `date`: under that month's id, at local noon of its day, with the template's id. */
+const madeByTemplate = (date: IsoDate): Transaction => ({
+  id: `rec_r1_${date.slice(0, 7)}`, kind: 'expense', amount: 120_000, categoryId: 'c4', note: 'Flat', date, at: Timestamp.fromDate(parseIsoDate(date)), source: 'app', recurringId: 'r1',
+})
 /** The last 60 days as seen on Sat 17 Oct 2026: five combos used 4, 3, 2, 1 and 1 times; the most recent row is yesterday's canteen lunch. */
 const RECENT = [
   ...logged(PLAIN_COFFEE, ['2026-10-12', '2026-10-08', '2026-10-05', '2026-10-01']),
@@ -621,6 +626,26 @@ describe('AddTransactionSheet', () => {
       // Used five times, more than any other combo, but its category was deleted by hand in the console.
       const gone: Combo = { kind: 'expense', categoryId: 'removed-in-console', amount: 700, note: 'gym' }
       withRows([...RECENT, ...logged(gone, ['2026-10-14', '2026-10-11', '2026-10-09', '2026-10-07', '2026-10-03'])])
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      expect(quickAddChips()).toEqual(['Coffee · €3.50', 'Coffee · €4.20 · oat latte', 'Salary · €5,000.00', 'Lunch · €12.00 · canteen'])
+    })
+
+    it('orders the categories by the entries the owner made: the rent a template wrote today does not put Housing first', async () => {
+      withCategories([...WITH_LUNCH, HOUSING])
+      withRows([...RECENT, madeByTemplate('2026-10-17')])
+      const user = userEvent.setup()
+      setup()
+      await user.click(screen.getByText('open-add'))
+      // Yesterday's canteen lunch is still the latest entry the owner made; Housing keeps its place by `order`.
+      expect(categoryChips().map((chip) => chip.textContent)).toEqual(['Lunch', 'Coffee', 'Housing'])
+    })
+
+    it('never offers what a template already adds, nor lets it take a slot', async () => {
+      withCategories([...WITH_LUNCH, HOUSING])
+      // The rent twice in the window: as often as the salary and more often than the canteen lunch, but the template adds it.
+      withRows([...RECENT, madeByTemplate('2026-09-01'), madeByTemplate('2026-10-01')])
       const user = userEvent.setup()
       setup()
       await user.click(screen.getByText('open-add'))

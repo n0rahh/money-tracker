@@ -4,7 +4,7 @@ import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestE
 import { deleteDoc, doc, getDoc, serverTimestamp, setDoc, setLogLevel, Timestamp, updateDoc, type DocumentData, type Firestore } from 'firebase/firestore'
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { restoreTransaction } from '../../src/lib/firestore'
+import { deleteTransaction, restoreTransaction } from '../../src/lib/firestore'
 import { mapTransaction } from '../../src/lib/mappers'
 
 const client = vi.hoisted(() => ({ db: null as unknown }))
@@ -92,7 +92,9 @@ describe('restoreTransaction against the rules', () => {
 
   it('ends with the entry back when Undo is tapped before the delete reached the server (neither write waited for)', async () => {
     const { original, tx } = await entry('t2', stored())
-    const deleting = deleteDoc(ref('t2'))
+    // Through the app's own client, as the Add sheet sends both: one client keeps its writes in order. (A delete sent
+    // through a second client could reach the server after the restore, and the entry would end up deleted.)
+    const deleting = deleteTransaction('t2')
     const restoring = restoreTransaction(tx)
     await Promise.all([deleting, restoring])
     expect(await read('t2')).toMatchObject({ amount: original.amount, note: original.note, date: original.date })

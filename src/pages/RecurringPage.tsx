@@ -22,6 +22,15 @@ function noteForName(note: string): string {
   return chars.length <= NOTE_IN_NAME ? note : `${chars.slice(0, NOTE_IN_NAME).join('').trimEnd()}…`
 }
 
+/**
+ * "Every month on day 1 · since January 2026 · until December 2026". For a valid template only: a month mistyped by hand
+ * is kept as stored (mappers.ts), and no date can be made of it to print.
+ */
+function schedule(t: RecurringTemplate, locale: string | null): string {
+  const until = t.endMonth === null ? '' : ` · until ${monthLabel(t.endMonth, locale)}`
+  return `Every month on day ${t.dayOfMonth} · since ${monthLabel(t.startMonth, locale)}${until}`
+}
+
 /** Settings → Recurring: every template, with Stop and Delete. The entries a template has made are never touched here. */
 export function RecurringPage() {
   const { templates, loading, error } = useRecurring()
@@ -92,9 +101,6 @@ export function RecurringPage() {
           const valid = isMaterialisable(t)
           // Running past this month: stopping it now changes something.
           const canStop = valid && (t.endMonth === null || t.endMonth > thisMonth)
-          const schedule = `Every month on day ${t.dayOfMonth} · since ${monthLabel(t.startMonth, locale)}${
-            t.endMonth === null ? '' : ` · until ${monthLabel(t.endMonth, locale)}`
-          }`
           return (
             <li key={t.id} className="border-t border-border px-3 py-3 first:border-t-0">
               <div className="flex items-center gap-3">
@@ -108,7 +114,7 @@ export function RecurringPage() {
                   {formatMoney(t.amount, currency, locale)}
                 </span>
               </div>
-              <p className="mt-1 pl-12 text-xs text-muted">{valid ? schedule : 'Invalid template'}</p>
+              <p className="mt-1 pl-12 text-xs text-muted">{valid ? schedule(t, locale) : 'Invalid template'}</p>
               <div className="mt-2 flex justify-end gap-2">
                 {canStop ? (
                   <Button variant="ghost" aria-label={`Stop ${which}`} onClick={() => stop(t)}>

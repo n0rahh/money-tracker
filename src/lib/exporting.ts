@@ -35,9 +35,14 @@ export type Backup = {
   currency: string
 }
 
-/** A copy of the record with each Timestamp as an ISO string; a timestamp that was never read stays out. */
+/**
+ * A copy of the record with each Timestamp as an ISO string; a timestamp that was never read stays out. One that is no
+ * moment is null: the mapper's `at` of an entry made by hand with an unreadable date and no time (NaN), which would
+ * otherwise throw "Invalid time value" and stop the whole backup.
+ */
 function withIsoTimestamps(record: object): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, value instanceof Timestamp ? value.toDate().toISOString() : value]))
+  const iso = (t: Timestamp) => (Number.isFinite(t.toMillis()) ? t.toDate().toISOString() : null)
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, value instanceof Timestamp ? iso(value) : value]))
 }
 
 /**

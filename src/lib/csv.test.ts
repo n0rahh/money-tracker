@@ -624,6 +624,15 @@ describe('slashDateOrderOf', () => {
   ])('$cells', ({ cells, expected }) => {
     expect(slashDateOrderOf(cells)).toEqual(expected)
   })
+
+  it('takes a number above 12 for one reading only: 13/04/2026 is day first, 04/13/2026 month first, and neither asks', () => {
+    expect(slashDateOrderOf(['13/04/2026'])).toEqual({ proven: 'dmy', ambiguous: null })
+    expect(slashDateOrderOf(['04/13/2026'])).toEqual({ proven: 'mdy', ambiguous: null })
+  })
+
+  it('takes a zero for no day and no month: 00/05/2026 and 05/00/2026 ask nothing', () => {
+    expect(slashDateOrderOf(['00/05/2026', '05/00/2026'])).toEqual({ proven: null, ambiguous: null })
+  })
 })
 
 describe("the id column of the app's own export", () => {

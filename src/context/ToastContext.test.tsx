@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider, useDismissToastWhenOpened, useToast } from './ToastContext'
 
@@ -186,6 +186,112 @@ describe('ToastProvider', () => {
     wait(1)
     expect(toast()).not.toBeInTheDocument()
     expect(onAction).not.toHaveBeenCalled()
+  })
+
+  describe('a toast with an action waits while it is in use, so its button can still be reached (WCAG 2.2.1)', () => {
+    const undoButton = () => screen.getByRole('button', { name: 'Undo' })
+    const pointerOver = () => fireEvent.pointerEnter(toast() as HTMLElement)
+    const pointerAway = () => fireEvent.pointerLeave(toast() as HTMLElement)
+    /** Shows a toast with an action, as a delete does. */
+    const deleted = (message = 'Deleted') => show(message, { actionLabel: 'Undo', onAction: vi.fn() })
+
+    it('waits while the pointer is over it, and goes after the time it had left once the pointer leaves', () => {
+      const onAction = vi.fn()
+      setup()
+      show('Deleted', { actionLabel: 'Undo', onAction })
+      wait(4000)
+      pointerOver()
+      wait(60_000)
+      expect(toast()).toHaveTextContent('Deleted')
+      pointerAway()
+      wait(1999)
+      expect(toast()).toBeInTheDocument()
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+      expect(onAction).not.toHaveBeenCalled()
+    })
+
+    it('waits while the keyboard focus is on its button, and goes after the time it had left once the focus moves on', () => {
+      setup()
+      deleted()
+      wait(1000)
+      act(() => undoButton().focus())
+      wait(60_000)
+      expect(toast()).toHaveTextContent('Deleted')
+      act(() => undoButton().blur())
+      wait(4999)
+      expect(toast()).toBeInTheDocument()
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+    })
+
+    it('keeps waiting while either still holds it: the focus after the pointer has left, the pointer after the focus has', () => {
+      setup()
+      deleted()
+      pointerOver()
+      act(() => undoButton().focus())
+      pointerAway()
+      wait(60_000)
+      expect(toast()).toBeInTheDocument()
+      pointerOver()
+      act(() => undoButton().blur())
+      wait(60_000)
+      expect(toast()).toBeInTheDocument()
+      pointerAway()
+      wait(5999)
+      expect(toast()).toBeInTheDocument()
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+    })
+
+    it('gives a toast that takes the place of a held one its own time, counted from when it is let go', () => {
+      setup()
+      deleted()
+      pointerOver()
+      wait(5000)
+      deleted('Template deleted') // drawn in the same place, still under the pointer
+      wait(60_000)
+      expect(toast()).toHaveTextContent('Template deleted')
+      pointerAway()
+      wait(5999)
+      expect(toast()).toBeInTheDocument()
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+    })
+
+    it('leaves a plain toast its 3 s, also one that takes the place of a held toast, and holds nothing over for the next', () => {
+      setup()
+      deleted()
+      pointerOver()
+      show('Could not delete: offline')
+      pointerOver() // a plain toast lets taps through: nothing over it holds it
+      wait(1000)
+      deleted('Deleted again')
+      wait(5999)
+      expect(toast()).toHaveTextContent('Deleted again')
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+      show('Saved')
+      pointerOver()
+      wait(2999)
+      expect(toast()).toHaveTextContent('Saved')
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+    })
+
+    it('holds nothing over once a held toast has been taken away', () => {
+      setup()
+      deleted()
+      pointerOver()
+      act(() => undoButton().focus())
+      act(() => api.dismissActionToast()) // a sheet opened
+      expect(toast()).not.toBeInTheDocument()
+      deleted('Deleted again')
+      wait(5999)
+      expect(toast()).toBeInTheDocument()
+      wait(1)
+      expect(toast()).not.toBeInTheDocument()
+    })
   })
 
   it('a second "Deleted" in a row offers Undo for the second entry only, for a fresh 6 s', () => {

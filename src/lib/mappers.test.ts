@@ -1,6 +1,7 @@
 import { Timestamp } from 'firebase/firestore'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { mapBudget, mapCategory, mapRecurring, mapSettings, mapTransaction, transactionAt } from './mappers'
+import { isMaterialisable } from './recurring'
 
 describe('mapCategory', () => {
   it('maps a well-formed document', () => {
@@ -83,14 +84,6 @@ describe('mapBudget', () => {
 })
 
 describe('mapRecurring', () => {
-  beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date(2026, 9, 17, 12, 0))
-  })
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('maps a well-formed document', () => {
     const createdAt = Timestamp.fromDate(new Date(2026, 0, 1, 9))
     const updatedAt = Timestamp.fromDate(new Date(2026, 8, 25, 9))
@@ -107,9 +100,9 @@ describe('mapRecurring', () => {
     const t = mapRecurring('r2', { kind: 'expense', amount: 1, categoryId: 'c', note: '', dayOfMonth: 1, startMonth: '2026-10', endMonth: null, lastAppliedMonth: null })
     expect([t.endMonth, t.lastAppliedMonth]).toEqual([null, null])
   })
-  it('defaults an empty document: an expense of 0 on day 1, starting this month, without an end, never applied', () => {
+  it('defaults an empty document: an expense of 0 on day 1, with no start month, without an end, never applied', () => {
     expect(mapRecurring('r3', {})).toEqual({
-      id: 'r3', kind: 'expense', amount: 0, categoryId: '', note: '', dayOfMonth: 1, startMonth: '2026-10', endMonth: null, lastAppliedMonth: null,
+      id: 'r3', kind: 'expense', amount: 0, categoryId: '', note: '', dayOfMonth: 1, startMonth: '', endMonth: null, lastAppliedMonth: null,
     })
   })
   it.each([
@@ -129,14 +122,35 @@ describe('mapRecurring', () => {
   ])('turns a dayOfMonth of $given into $day', ({ given, day }) => {
     expect(mapRecurring('r4', { dayOfMonth: given }).dayOfMonth).toBe(day)
   })
-  it.each(['2026-13', '2026-00', '2026-1', '2026-10-01', 'x', '', 202610, null])(
-    'replaces the invalid month %j: this month for startMonth, null for endMonth and lastAppliedMonth',
-    (bad) => {
-      expect(mapRecurring('r5', { startMonth: bad, endMonth: bad, lastAppliedMonth: bad })).toMatchObject({
-        startMonth: '2026-10', endMonth: null, lastAppliedMonth: null,
+  describe('the three months, never repaired: a malformed one makes the template invalid', () => {
+    // Valid in every field: each case below spoils one month only. A repair would be worse than a refusal: a lastAppliedMonth
+    // read as null ("never applied") makes the materialiser write every month again from startMonth.
+    const VALID = { kind: 'expense', amount: 1, categoryId: 'c', note: '', dayOfMonth: 1, startMonth: '2026-01', endMonth: '2026-12', lastAppliedMonth: '2026-09' }
+    const MONTHS = ['startMonth', 'endMonth', 'lastAppliedMonth'] as const
+
+    it('reads a valid template as valid', () => {
+      expect(isMaterialisable(mapRecurring('r5', VALID))).toBe(true)
+    })
+    it.each(['2026-13', '2026-00', '2026-1', '2026-10-01', '2026/10', 'Oct 2026', 'x', ''])('keeps the text %j as stored, in each of them', (bad) => {
+      for (const field of MONTHS) {
+        const t = mapRecurring('r5', { ...VALID, [field]: bad })
+        expect(t[field]).toBe(bad)
+        expect(isMaterialisable(t)).toBe(false)
+      }
+    })
+    it.each([202610, 2026.1, true, { month: '2026-10' }])('turns a stored %j into text no month can be: empty for startMonth, its own text for the others', (bad) => {
+      expect(mapRecurring('r5', { ...VALID, startMonth: bad, endMonth: bad, lastAppliedMonth: bad })).toMatchObject({
+        startMonth: '', endMonth: String(bad), lastAppliedMonth: String(bad),
       })
-    },
-  )
+      for (const field of MONTHS) expect(isMaterialisable(mapRecurring('r5', { ...VALID, [field]: bad }))).toBe(false)
+    })
+    it('reads null or a missing endMonth and lastAppliedMonth as "no end" and "never applied", and a missing startMonth as none', () => {
+      const t = mapRecurring('r5', { ...VALID, endMonth: null, lastAppliedMonth: undefined, startMonth: undefined })
+      expect([t.startMonth, t.endMonth, t.lastAppliedMonth]).toEqual(['', null, null])
+      expect(isMaterialisable(mapRecurring('r5', { ...VALID, endMonth: undefined, lastAppliedMonth: null }))).toBe(true)
+      expect(isMaterialisable(mapRecurring('r5', { ...VALID, startMonth: null }))).toBe(false)
+    })
+  })
   it('treats an unknown kind as an expense and keeps income', () => {
     expect(mapRecurring('r6', { kind: 'transfer' }).kind).toBe('expense')
     expect(mapRecurring('r7', { kind: 'income' }).kind).toBe('income')

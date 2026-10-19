@@ -59,6 +59,9 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
     return { from: addDays(today, -60), to: today }
   })
   const { transactions: recent } = useTransactions(from, to)
+  // Only the entries the owner made: one a template wrote would put its category first on its day, and offer in quick add
+  // a bill the app already adds each month.
+  const logged = useMemo(() => recent.filter((t) => t.recurringId === undefined), [recent])
 
   const currency = settings?.currency ?? 'USD'
   const locale = settings?.locale ?? null
@@ -75,14 +78,14 @@ function AddTransactionForm({ editing, settings, lastKind, rememberKind, onClose
   // An edit keeps its archived category on offer, first and marked; pickers otherwise hide archived ones (spec §6), so new entries never see it.
   const archivedOriginal = editing ? categories.find((c) => c.id === editing.categoryId && c.archived) : undefined
   const ordered = useMemo(() => {
-    const active = orderCategoriesByRecency(categories, recent, kind)
+    const active = orderCategoriesByRecency(categories, logged, kind)
     return archivedOriginal?.kind === kind ? [archivedOriginal, ...active] : active
-  }, [categories, recent, kind, archivedOriginal])
+  }, [categories, logged, kind, archivedOriginal])
   // New entries only, and only once the categories are known: like the category row, quick add offers only active categories,
   // never an archived one or one removed by hand (filtered before ranking, so neither takes a slot).
   const quickAdd = useMemo(
-    () => (editing || categoriesLoading ? [] : suggestions(recent.filter((t) => byId.get(t.categoryId)?.archived === false), to)),
-    [editing, categoriesLoading, recent, byId, to],
+    () => (editing || categoriesLoading ? [] : suggestions(logged.filter((t) => byId.get(t.categoryId)?.archived === false), to)),
+    [editing, categoriesLoading, logged, byId, to],
   )
   // Only until the first digit or category: from then on the row would just push the second row of categories below the fold.
   const offerQuickAdd = keypad.expr === '' && categoryId === null
