@@ -45,7 +45,7 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"   # the emulators need a JDK
 npx firebase emulators:start --only auth,firestore --project demo-money-tracker --import=./.emulator-data --export-on-exit=./.emulator-data
 ```
 
-The Auth emulator's "Add new account" screen accepts the owner email; the rules require `email_verified`, which the emulator sets for fake Google accounts. On the emulators, "Create password" on the Siri & Apple Watch page cannot work (the Auth emulator refuses to link a password to an account with the same email); only part 3, the test, works there, with a password account made in the emulator.
+The Auth emulator's "Add new account" screen accepts the owner email; the rules require `email_verified`, which the emulator sets for fake Google accounts. On the emulators, "Create password" on the Siri & Apple Watch page cannot work: the Auth emulator refuses to link a password to an account with the same email, so any Create answers "A Shortcut password already exists. Reset it instead." Only part 3, the test, works there, with a password account made in the emulator.
 
 ## Checks
 

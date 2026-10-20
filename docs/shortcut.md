@@ -73,7 +73,7 @@ How to read the steps:
 }
 ```
 
-- It holds your active expense categories, in their order in the app. A name loses every "." (Shortcuts would read a dotted key as a path into the dictionary, so "Dr. visits" becomes "Dr visits"), and a name used twice gets " (2)" after it, so every name is unique.
+- It holds your active expense categories, in their order in the app. A name loses every "." (Shortcuts would read a dotted key as a path into the dictionary, so "Dr. visits" becomes "Dr visits"), a name left blank once its dots are gone reads "Unnamed", and a name used twice gets " (2)" after it, so every name is unique.
 
 ### 6. Get Dictionary from Input
 
