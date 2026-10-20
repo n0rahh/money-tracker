@@ -10,20 +10,22 @@ It needs four things, once:
 
 1. **Email/Password sign-in, turned on.** Firebase Console → Authentication → Sign-in method → add **Email/Password** and enable it. Leave "Email link (passwordless)" off. Only you can do this: until then, "Create password" in the app says "Email/password sign-in is off. Turn it on in Firebase Console → Authentication → Sign-in method."
 2. **New sign-ups on, until the password exists.** The app links the password to your Google account through Firebase's sign-up, so Firebase Console → Authentication → Settings → User actions → "Enable create (sign-up)" must be on while you create it. Turn it off again right after. With it off, "Create password" says "Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again."
-3. **The Shortcut password.** In the app: Settings → Siri & Apple Watch → "1. Shortcut password" → "Create password". The app makes a 24-character password and shows it once ("Shown once. Paste it into the Shortcut now."). It never stores it: if you lose it, "Reset password" makes a new one.
-4. **The five values** from "2. Values for the Shortcut", each with a Copy button. Where each one goes:
+3. **The Shortcut password.** In the app: Settings → Siri & Apple Watch → "1. Shortcut password" → "Create password". If your last Google sign-in is older than 4 minutes, the Google sign-in opens first; if the phone blocks it, the page says "The sign-in window was blocked. Tap "Confirm with Google" to go on.", and that button opens it. The app makes a 24-character password and shows it once ("Shown once. Paste it into the Shortcut now."). It never stores it: if you lose it, "Reset password" makes a new one. Right after, the app checks that your email still counts as verified. If not, it sends Firebase's verification email at once and says so ("Your email needs re-verifying for password sign-in. We sent a verification email to <email>: open its link, then come back."): open the link before you test.
+4. **The seven values** from "2. Values for the Shortcut", each with a Copy button. Where each one goes:
 
 | Value | Where it goes |
 |---|---|
-| "Project id" | Step 14, in the URL |
-| "Web API key" | Step 10, in the URL |
+| "Project id" | Already inside the Write URL |
+| "Web API key" | Already inside the Sign-in URL |
 | "Email" | Step 10, the `email` field |
+| "Sign-in URL" | Step 10, the URL, pasted whole |
+| "Write URL" | Step 14, the URL, pasted whole |
 | "Expense categories" | Step 5 |
 | "Income categories" | Step 5 of the income copy ([Income](#income)) |
 
 The password goes into step 10 as well, as the `password` field.
 
-Then try the whole path in the app before you build anything: "3. Test it here" → paste the password → "Send a test entry". The app makes the Shortcut's two calls with that password and adds a real entry of 0.01: "Shortcut test", in your first expense category, today. Its toast "Test entry added" has Undo, which removes the entry. If the page says "Your email is not marked verified for password sign-in.", tap "Send verification email", open the link in the email and test again.
+Then try the whole path in the app before you build anything: "3. Test it here" (until a password exists it reads "Create the password in step 1 first.") → paste the password → "Send a test entry", which reads "Sending…" while it runs. The app makes the Shortcut's two calls with that password and adds a real entry of 0.01: "Shortcut test", in your first expense category, today. Its toast "Test entry added" has Undo, which removes the entry. If the page says "Your email is not marked verified for password sign-in.", tap "Send verification email", open the link in the email and test again.
 
 ## The recipe
 
@@ -33,7 +35,7 @@ How to read the steps:
 
 - Each action passes its result to the next one. Shortcuts names the results: "Provided Input", "Calculation Result", "Rounded Number", "Formatted Number", "Updated Text", "Text", "Dictionary", "Dictionary Value", "Chosen Item", "Contents of URL" and "Formatted Date".
 - Where a step uses an earlier result, insert it as a variable: put the cursor there, then tap the result in the bar above the keyboard, or tap "Select Variable" and tap the action it comes from. Several results share a name ("Text", "Dictionary Value", "Contents of URL", "Formatted Date"); the step says which one it means.
-- In the templates, a name in angle brackets such as `<Updated Text>` is a variable: delete the placeholder, brackets included, and insert the variable in its place. `<web API key>` and `<project id>` are values you paste from the app, also without the brackets.
+- In the templates, a name in angle brackets such as `<Updated Text>` is a variable: delete the placeholder, brackets included, and insert the variable in its place. In the two URLs, `<web API key>` and `<project id>` stand for your own values: paste the whole URL from the app instead of typing it.
 - If a parameter is not visible, tap the action's arrow ("Show More").
 
 ### 1. Ask for Input
@@ -70,7 +72,7 @@ How to read the steps:
 }
 ```
 
-- It holds your active expense categories. A name used twice gets " (2)" after it, so every name is unique.
+- It holds your active expense categories, in their order in the app. A name loses every "." (Shortcuts would read a dotted key as a path into the dictionary, so "Dr. visits" becomes "Dr visits"), and a name used twice gets " (2)" after it, so every name is unique.
 
 ### 6. Get Dictionary from Input
 
@@ -94,7 +96,7 @@ How to read the steps:
 
 ### 10. Get Contents of URL (sign in)
 
-- The URL, with the "Web API key" pasted in place of `<web API key>`:
+- The URL: paste the "Sign-in URL" from the app, whole. It has this shape, with your key in it:
 
 ```
 https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=<web API key>
@@ -155,7 +157,7 @@ Two "Format Date" actions, both on "Current Date":
 
 ### 14. Get Contents of URL (write) + If + Show Notification
 
-- The URL, with the "Project id" pasted in place of `<project id>`:
+- The URL: paste the "Write URL" from the app, whole. It has this shape, with your project id in it:
 
 ```
 https://firestore.googleapis.com/v1/projects/<project id>/databases/(default)/documents/transactions
@@ -201,6 +203,8 @@ When a run fails, its notification shows Firebase's message (the write's `error.
 | What you see | What it means | What to do |
 |---|---|---|
 | "Create password" says "Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again." (`auth/admin-restricted-operation`) | Linking the password goes through Firebase's sign-up, which is off. | Turn "Enable create (sign-up)" on, create the password, then turn it off again. |
+| "The sign-in window was blocked. Tap "Confirm with Google" to go on." | The phone blocked the Google sign-in that Create or Reset opens first. | Tap "Confirm with Google": the sign-in opens from that tap, and the page then finishes the Create or Reset by itself. |
+| "Your email needs re-verifying for password sign-in. …" | Linking or resetting the password left the email unverified. Until it is verified again, the rules refuse the Shortcut and, from its next token, the app too. | Open the link in the verification email (check Spam; "Send again" sends another), then test again. |
 | "Email/password sign-in is off. …" (`OPERATION_NOT_ALLOWED` or `PASSWORD_LOGIN_DISABLED`) | The Email/Password provider is off. | Firebase Console → Authentication → Sign-in method → Email/Password → enable it. |
 | "Wrong password. Reset it in step 1 and paste the new one." (`INVALID_LOGIN_CREDENTIALS`, or `INVALID_PASSWORD`, `EMAIL_NOT_FOUND`) | The password or the email in step 10 is not the current one. | On the page, "Reset password", and paste the new password into step 10 (in the income copy too). Check `email` against the "Email" value. |
 | "Too many attempts. Try again in a few minutes." (`TOO_MANY_ATTEMPTS_TRY_LATER`) | Too many failed sign-ins in a row. | Wait a few minutes, then fix the password. |

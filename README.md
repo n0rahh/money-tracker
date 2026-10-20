@@ -90,7 +90,7 @@ Keep the backup and the dump under `imports/` (for example `node scripts/mmbak-d
 An Apple Shortcut, "Add expense", adds an entry from Siri, the Apple Watch, a watch-face complication or the Action button. It signs in with a password linked to your Google account and writes the entry through Firestore's REST API, so there is still no server and no App Store.
 
 1. Once, in Firebase Console → Authentication → Sign-in method: add **Email/Password** and enable it (leave "Email link (passwordless)" off). The app cannot turn it on itself. Also keep Authentication → Settings → User actions → "Enable create (sign-up)" on until the password exists: the app links it through sign-up.
-2. In the app, Settings → Siri & Apple Watch: create the password (shown once, never stored), then turn "Enable create (sign-up)" off again. Copy the five values and send a test entry; its Undo removes it.
+2. In the app, Settings → Siri & Apple Watch: create the password (shown once, never stored), then turn "Enable create (sign-up)" off again. Copy the seven values and send a test entry; its Undo removes it.
 3. On the iPhone, build the Shortcut from [docs/shortcut.md](docs/shortcut.md) and turn on "Show on Apple Watch".
 
 For income, duplicate the Shortcut, change `"expense"` to `"income"` and paste the income categories. "Reset password" on the same page revokes the Shortcut (other signed-in devices may need to sign in again). The rules did not change: an entry from the Shortcut passes the same checks as one made in the app, with `source: "shortcut"`.
