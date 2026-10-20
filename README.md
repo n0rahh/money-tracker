@@ -54,7 +54,7 @@ npm run typecheck
 npm run lint
 npm test                      # Vitest + Testing Library (jsdom)
 npm run test:scripts          # node:test for scripts/ (the .mmbak dump)
-export PATH="/opt/homebrew/opt/openjdk/bin:$PATH" && npm run test:rules   # 4 files against the emulator: the rules, and the app's own writes and reads
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH" && npm run test:rules   # 5 files against the Auth and Firestore emulators: the rules, the app's own writes and reads, and the Shortcut's exact HTTP calls
 npm run build                 # warning-free; first paint ≈ 302 kB gzipped (budget 320), all JS ≈ 323 kB (budget 350)
 ```
 
@@ -93,7 +93,7 @@ An Apple Shortcut, "Add expense", adds an entry from Siri, the Apple Watch, a wa
 2. In the app, Settings → Siri & Apple Watch: create the password (shown once, never stored), then turn "Enable create (sign-up)" off again. Copy the five values and send a test entry; its Undo removes it.
 3. On the iPhone, build the Shortcut from [docs/shortcut.md](docs/shortcut.md) and turn on "Show on Apple Watch".
 
-For income, duplicate the Shortcut, change `"expense"` to `"income"` and paste the income categories. Reset or Remove on the same page revokes the Shortcut. The rules did not change: an entry from the Shortcut passes the same checks as one made in the app, with `source: "shortcut"`.
+For income, duplicate the Shortcut, change `"expense"` to `"income"` and paste the income categories. "Reset password" on the same page revokes the Shortcut (other signed-in devices may need to sign in again). The rules did not change: an entry from the Shortcut passes the same checks as one made in the app, with `source: "shortcut"`.
 
 ## Roadmap
 

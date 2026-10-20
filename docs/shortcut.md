@@ -209,7 +209,7 @@ When a run fails, its notification shows Firebase's message (the write's `error.
 | The entry has the wrong amount, or the write is refused as malformed (`400`) | Steps 2 to 4 did not give plain digits in minor units. 100 times too much: Format Number kept its decimals. 100 times too little: step 2 is missing. | Check steps 2 to 4: × 100, round to "Ones Place", Format Number with 0 decimal places, then Replace Text with `[^0-9]` and "Regular Expression" on. |
 | "Added …" shows, but the entry is not in the app | The entry was written, maybe on another day or under another category. | Open it in Firebase Console → Firestore Database → `transactions` (its `source` is `shortcut`) and check its `date` and `categoryId`. |
 | A new category is missing from the list, or a renamed one shows its old name | The Shortcut keeps the dictionary you pasted. | After you change categories, copy "Expense categories" (or "Income categories") again and paste it over the text of step 5. An entry made with an older copy is still valid and shows under its category. |
-| You want to stop the Shortcut (a lost phone, a shared iCloud account) | | On the page, "Reset password": the old password stops working, so paste the new one into the Shortcuts you keep. Or "Remove": every copy stops until you create a new password. Turning Email/Password off in the console stops it too. |
+| You want to stop the Shortcut (a lost phone, a shared iCloud account) | | On the page, "Reset password": the old password stops working, so paste the new one into the Shortcuts you keep. Other devices signed in to the app may need to sign in again. Turning Email/Password off in the console stops every copy too. |
 
 ## Security
 
@@ -217,4 +217,4 @@ When a run fails, its notification shows Firebase's message (the write's `error.
 - The Web API key is public by design. It names the Firebase project and is in the app's own code anyway; on its own it gives no access to the data.
 - The rules and the password are what protect the data. The rules accept only the owner's email, marked verified, and only entries that pass their checks; Milestone 4 did not change them.
 - Keep new sign-ups off once the password exists: Firebase Console → Authentication → Settings → User actions → "Enable create (sign-up)" off. Turn it on only while you create a password. The rules already make any other account useless; this keeps the user list clean.
-- To revoke the Shortcut: "Reset password" or "Remove" on the page, or Email/Password off in the console.
+- To revoke the Shortcut: "Reset password" on the page (other devices signed in to the app may need to sign in again), or Email/Password off in the console. The page has no way to remove the password: taking it off the account can clear the account's email, which would lock you out of the app.
