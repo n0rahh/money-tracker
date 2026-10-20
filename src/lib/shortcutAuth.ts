@@ -18,8 +18,9 @@ export function hasPasswordProvider(user: User): boolean {
 
 /**
  * Signs the owner in again with the Google popup, which renews the "recent login" that changing a password needs. The
- * page calls it straight from a tap ("Confirm with Google") when the popup that withRecentLogin opens after an await
- * was blocked: browsers allow a popup only inside a user's tap.
+ * page calls it at the start of Create and Reset when the session signed in more than a few minutes ago, and straight
+ * from a tap ("Confirm with Google") when a popup opened after an await was blocked: browsers allow a popup only
+ * inside a user's tap.
  */
 export async function reauthenticateOwner(user: User): Promise<void> {
   await reauthenticateWithPopup(user, googleProvider)
@@ -71,8 +72,9 @@ export function shortcutAuthErrorText(e: unknown): string {
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
       return 'Sign-in was cancelled.'
+    // The page's "Confirm with Google" opens the window from its own tap and then makes the change by itself.
     case 'auth/popup-blocked':
-      return 'The sign-in window was blocked. Tap "Confirm with Google", then try again.'
+      return 'The sign-in window was blocked. Tap "Confirm with Google" to go on.'
     case 'auth/network-request-failed':
       return "You're offline."
     default:

@@ -133,7 +133,7 @@ describe('shortcutAuthErrorText', () => {
     ['auth/provider-already-linked', 'A Shortcut password already exists. Reset it instead.'],
     ['auth/popup-closed-by-user', 'Sign-in was cancelled.'],
     ['auth/cancelled-popup-request', 'Sign-in was cancelled.'],
-    ['auth/popup-blocked', 'The sign-in window was blocked. Tap "Confirm with Google", then try again.'],
+    ['auth/popup-blocked', 'The sign-in window was blocked. Tap "Confirm with Google" to go on.'],
     ['auth/network-request-failed', "You're offline."],
   ])('explains %s', (code, text) => {
     expect(shortcutAuthErrorText(authError(code))).toBe(text)

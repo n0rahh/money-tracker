@@ -32,11 +32,16 @@ describe('CopyField', () => {
     expect(area.tagName).toBe('TEXTAREA')
     expect(area).toHaveValue(CATEGORIES)
     expect(area).toHaveAttribute('readonly')
+    // Four lines (three line breaks): four rows.
     expect(area).toHaveAttribute('rows', '4')
     unmount()
 
-    field({ label: 'Expense categories', value: Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n'), multiline: true })
-    expect(screen.getByRole('textbox', { name: 'Expense categories' })).toHaveAttribute('rows', '8')
+    const lines = (count: number) => Array.from({ length: count }, (_, i) => `line ${i + 1}`).join('\n')
+    for (const [value, rows] of [['{}', '1'], [lines(8), '8'], [lines(9), '8'], [lines(12), '8']]) {
+      const { unmount: next } = field({ label: 'Expense categories', value, multiline: true })
+      expect(screen.getByRole('textbox', { name: 'Expense categories' })).toHaveAttribute('rows', rows)
+      next()
+    }
   })
 
   it('has a Copy button of at least 44 px that names what it copies', () => {

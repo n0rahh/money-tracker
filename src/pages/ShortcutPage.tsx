@@ -27,6 +27,7 @@ const INTRO = 'An Apple Shortcut adds expenses from Siri, the watch and the Acti
 const RESET_NOTE = 'The old password stops working; other signed-in devices may need to sign in again.'
 const REVERIFY_TEXT = 'Your email needs re-verifying for password sign-in.'
 const SENT_TEXT = 'Verification email sent. Open the link, then test again.'
+const GATE_TEXT = 'Create the password in step 1 first.'
 const TEST_NOTE = 'Makes the Shortcut\'s two calls with this password and adds a real entry of 0.01, "Shortcut test", to your first expense category. Undo removes it.'
 const WATCH_NOTE =
   'In the Shortcut\'s details turn on "Show on Apple Watch". Say "Hey Siri, add expense" or add it to a watch face as a complication. For income, duplicate the Shortcut and change "expense" to "income" and the categories text.'
@@ -46,6 +47,19 @@ function restHosts(): RestHosts {
 
 /** A blocked Google popup: the one a change opens after its awaits, which a browser allows only straight from a tap. */
 const isPopupBlocked = (e: unknown) => typeof e === 'object' && e !== null && 'code' in e && e.code === 'auth/popup-blocked'
+
+/** Firebase lets the sign-in methods change only about 5 minutes after a sign-in; 4 leaves the change time to arrive. */
+const RECENT_SIGN_IN_MS = 4 * 60 * 1000
+
+/**
+ * Whether this session signed in with Google too long ago for Firebase to allow a change of the sign-in methods. The
+ * cached token's authTime is the sign-in itself, not the token's last refresh; a token that does not say counts as too
+ * old. Cached, not refreshed: a network request before the popup would make the browser more likely to block it.
+ */
+async function signInIsStale(user: User): Promise<boolean> {
+  const signedInAt = Date.parse((await user.getIdTokenResult()).authTime)
+  return Number.isNaN(signedInAt) || Date.now() - signedInAt > RECENT_SIGN_IN_MS
+}
 
 /** Sends Firebase's verification email; resolves with whether it went out, and says why when it did not. */
 function useSendVerification(user: User): () => Promise<boolean> {
@@ -77,32 +91,63 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
 type Change = 'create' | 'reset'
 /** A change that failed: what to say, and, after a blocked popup, the change to make again once Google is confirmed. */
 type Failure = { text: string; retry: Change | null }
+/** After a change left the email unverified: whether the verification email went out. */
+type Reverify = 'sent' | 'unsent'
 
-function PasswordPart({ user }: { user: User }) {
+type PasswordPartProps = {
+  user: User
+  hasPassword: boolean
+  /** A change went through: there is a password now. */
+  onPasswordMade: () => void
+  reverify: Reverify | null
+  setReverify: (reverify: Reverify | null) => void
+}
+
+function PasswordPart({ user, hasPassword, onPasswordMade, reverify, setReverify }: PasswordPartProps) {
   const sendVerification = useSendVerification(user)
   const { showToast } = useToast()
-  // Kept here once a change succeeds: the SDK updates the user object in place, which re-renders nothing.
-  const [hasPassword, setHasPassword] = useState(() => hasPasswordProvider(user))
   const [busy, setBusy] = useState(false)
   // The new password, until the page closes: shown this once and stored nowhere, so a lost one is replaced by a reset.
   const [password, setPassword] = useState<string | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
-  // When the change left the email unverified: whether the verification email went out.
-  const [reverify, setReverify] = useState<'sent' | 'unsent' | null>(null)
 
-  async function change(kind: Change) {
+  /** Each attempt starts afresh, one at a time: no line of an earlier one stays beside what this one finds. */
+  function begin() {
     setBusy(true)
     setFailure(null)
     setReverify(null)
+  }
+
+  function fail(e: unknown, kind: Change) {
+    setFailure({ text: shortcutAuthErrorText(e), retry: isPopupBlocked(e) ? kind : null })
+    setBusy(false)
+  }
+
+  /**
+   * Create or Reset from its button. After a long session Firebase would refuse the change with requires-recent-login,
+   * and the popup that withRecentLogin opens then, after a network request, is the one browsers block; asked for first,
+   * the Google sign-in opens as close to the tap as it can. withRecentLogin stays the safety net.
+   */
+  async function start(kind: Change) {
+    begin()
+    try {
+      if (await signInIsStale(user)) await reauthenticateOwner(user)
+    } catch (e) {
+      fail(e, kind)
+      return
+    }
+    await apply(kind)
+  }
+
+  async function apply(kind: Change) {
     const next = generateShortcutPassword()
     try {
       await (kind === 'create' ? linkShortcutPassword(user, next) : resetShortcutPassword(user, next))
     } catch (e) {
-      setFailure({ text: shortcutAuthErrorText(e), retry: isPopupBlocked(e) ? kind : null })
-      setBusy(false)
+      fail(e, kind)
       return
     }
-    setHasPassword(true)
+    onPasswordMade()
     setPassword(next)
     setBusy(false)
     await checkVerified()
@@ -124,18 +169,17 @@ function PasswordPart({ user }: { user: User }) {
     if (!verified) setReverify((await sendVerification()) ? 'sent' : 'unsent')
   }
 
-  // Nothing is awaited before reauthenticateOwner, so its popup opens within this tap.
+  // Nothing is awaited before reauthenticateOwner, so its popup opens within this tap; signed in just now, the change
+  // itself follows without a second look at the sign-in's age.
   async function confirmWithGoogle(kind: Change) {
-    setBusy(true)
-    setFailure(null)
+    begin()
     try {
       await reauthenticateOwner(user)
     } catch (e) {
-      setFailure({ text: shortcutAuthErrorText(e), retry: isPopupBlocked(e) ? kind : null })
-      setBusy(false)
+      fail(e, kind)
       return
     }
-    await change(kind)
+    await apply(kind)
   }
 
   async function sendAgain() {
@@ -150,13 +194,13 @@ function PasswordPart({ user }: { user: User }) {
       <p className="mt-1 text-sm text-muted">{hasPassword ? 'Password set' : 'No password yet'}</p>
       {hasPassword ? (
         <>
-          <Button variant="ghost" className="mt-3" disabled={busy} onClick={() => void change('reset')}>
+          <Button variant="ghost" className="mt-3" disabled={busy} onClick={() => void start('reset')}>
             Reset password
           </Button>
           <p className="mt-2 px-1 text-xs text-muted">{RESET_NOTE}</p>
         </>
       ) : (
-        <Button className="mt-3" disabled={busy} onClick={() => void change('create')}>
+        <Button className="mt-3" disabled={busy} onClick={() => void start('create')}>
           Create password
         </Button>
       )}
@@ -223,10 +267,20 @@ function ValuesPart({ email, categories, loading, error }: { email: string; cate
 /** What the last test found, when it added no entry. */
 type Outcome = { kind: 'unverified' } | { kind: 'failed'; text: string }
 
-function TestPart({ user, categoryId }: { user: User; categoryId: string | undefined }) {
+type TestPartProps = {
+  user: User
+  categoryId: string | undefined
+  /** Without a password the sign-in can only fail, and its "Wrong password" would point at a Reset that is not there. */
+  hasPassword: boolean
+  /** The test's sign-in found the email verified: part 1's re-verify sentence is out of date. */
+  onVerified: () => void
+}
+
+function TestPart({ user, categoryId, hasPassword, onVerified }: TestPartProps) {
   const { showToast } = useToast()
   const sendVerification = useSendVerification(user)
   const inputId = useId()
+  const gateId = useId()
   // Held in this field's state while the page is open, and stored nowhere.
   const [password, setPassword] = useState('')
   const [running, setRunning] = useState(false)
@@ -244,6 +298,7 @@ function TestPart({ user, categoryId }: { user: User; categoryId: string | undef
         setOutcome({ kind: 'unverified' })
         return
       }
+      onVerified()
       // One instant for both, so the date and the time cannot fall on two sides of midnight.
       const now = new Date()
       const entry = { kind: 'expense' as const, amount: 1, categoryId: intoCategory, note: 'Shortcut test', date: todayIso(now), at: now }
@@ -280,12 +335,19 @@ function TestPart({ user, categoryId }: { user: User; categoryId: string | undef
         type="password"
         autoComplete="off"
         value={password}
+        disabled={!hasPassword}
+        aria-describedby={hasPassword ? undefined : gateId}
         onChange={(e) => setPassword(e.target.value)}
-        className="min-h-11 w-full rounded-chip border border-border bg-surface-2 px-3 text-text"
+        className="min-h-11 w-full rounded-chip border border-border bg-surface-2 px-3 text-text disabled:opacity-40"
       />
+      {hasPassword ? null : (
+        <p id={gateId} className="mt-2 px-1 text-xs text-muted">
+          {GATE_TEXT}
+        </p>
+      )}
       <Button
         className="mt-3 w-full"
-        disabled={running || password === '' || categoryId === undefined}
+        disabled={!hasPassword || running || password === '' || categoryId === undefined}
         onClick={() => {
           if (categoryId !== undefined) void sendTest(categoryId)
         }}
@@ -335,6 +397,11 @@ export function ShortcutPage() {
   const { categories, loading, error } = useCategories()
   const location = useLocation()
   const navigate = useNavigate()
+  // A password made on this visit: the SDK adds the provider to the user object in place, which re-renders nothing.
+  const [passwordMade, setPasswordMade] = useState(false)
+  // Part 1's re-verify sentence, here because part 3's test takes it away once its sign-in finds the email verified.
+  const [reverify, setReverify] = useState<Reverify | null>(null)
+  const hasPassword = passwordMade || (user !== null && hasPasswordProvider(user))
   // The test's category: the first of the Shortcut's own list, in the order categoryDictionary gives it.
   const firstExpense = categories.filter((c) => c.kind === 'expense' && !c.archived).sort((a, b) => a.order - b.order)[0]
 
@@ -362,9 +429,15 @@ export function ShortcutPage() {
       {/* Behind RequireAuth there is always a user; the check is for the type. */}
       {user ? (
         <>
-          <PasswordPart user={user} />
+          <PasswordPart
+            user={user}
+            hasPassword={hasPassword}
+            onPasswordMade={() => setPasswordMade(true)}
+            reverify={reverify}
+            setReverify={setReverify}
+          />
           <ValuesPart email={user.email ?? ''} categories={categories} loading={loading} error={error} />
-          <TestPart user={user} categoryId={firstExpense?.id} />
+          <TestPart user={user} categoryId={firstExpense?.id} hasPassword={hasPassword} onVerified={() => setReverify(null)} />
         </>
       ) : null}
       <RecipePart />

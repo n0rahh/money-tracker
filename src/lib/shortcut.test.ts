@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { categoryDictionary, DEFAULT_HOSTS, firestoreFields, generateShortcutPassword, SHORTCUT_RECIPE, signInUrl, transactionsUrl, type ShortcutEntry } from './shortcut'
 import type { Category } from './types'
 
@@ -71,6 +71,12 @@ describe('generateShortcutPassword', () => {
     const random = bytesFrom([255, 248, 247, ...Array.from({ length: 40 }, (_, i) => i)])
     expect(generateShortcutPassword(random)).toBe('9ABCDEFGHIJKLMNOPQRSTUVW')
   })
+
+  it('makes up for a single skipped byte too: 23 characters from the first round, the 24th from a second', () => {
+    const random = vi.fn(bytesFrom([255, ...Array.from({ length: 46 }, (_, i) => i)]))
+    expect(generateShortcutPassword(random)).toBe('ABCDEFGHIJKLMNOPQRSTUVWX')
+    expect(random).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('categoryDictionary', () => {
@@ -108,6 +114,18 @@ describe('categoryDictionary', () => {
 
   it('keeps a name that is also a property of every object as it is', () => {
     expect(JSON.parse(categoryDictionary([cat('t', 'toString', 0), cat('c', 'constructor', 1)], 'expense'))).toStrictEqual({ toString: 't', constructor: 'c' })
+  })
+
+  it('keeps the order of the categories for names of digits only, which an object would move to the front', () => {
+    const categories = [cat('y', '2026', 0), cat('g', 'Groceries', 1), cat('s', '7', 2)]
+    expect(categoryDictionary(categories, 'expense')).toBe('{\n  "2026": "y",\n  "Groceries": "g",\n  "7": "s"\n}')
+  })
+
+  it('drops every "." from the names, which the Shortcut would read as a path into the dictionary, then keeps the keys apart', () => {
+    const categories = [cat('dr', 'Dr. visits', 0), cat('usa', 'U.S.A. trip', 1), cat('dr-2', 'Dr visits', 2), cat('dr-3', 'Dr. visits', 3)]
+    expect(categoryDictionary(categories, 'expense')).toBe(
+      '{\n  "Dr visits": "dr",\n  "USA trip": "usa",\n  "Dr visits (2)": "dr-2",\n  "Dr visits (3)": "dr-3"\n}',
+    )
   })
 
   it('escapes quotes in a name, so the pasted text stays valid JSON', () => {

@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FirebaseError } from 'firebase/app'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigationType } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ToastProvider } from '../context/ToastContext'
-import { DEFAULT_HOSTS, SHORTCUT_RECIPE } from '../lib/shortcut'
+import { ACTION_DURATION_MS, ToastProvider } from '../context/ToastContext'
+import { DEFAULT_HOSTS, generateShortcutPassword, SHORTCUT_RECIPE } from '../lib/shortcut'
 import { ShortcutRestError } from '../lib/shortcutRest'
 import type { Category } from '../lib/types'
 import { ShortcutPage } from './ShortcutPage'
@@ -39,6 +39,11 @@ vi.mock('../hooks/useCategories', () => ({ useCategories }))
 // The page's one write through the SDK: Undo of the test entry.
 vi.mock('../lib/firestore', () => ({ deleteTransaction }))
 vi.mock('../lib/firebase', () => ({ firebaseProjectId: 'money-tracker-vlad', firebaseApiKey: 'key', googleProvider: { providerId: 'google.com' } }))
+// The real generator, watched: a test can see that the change receives exactly the password it made.
+vi.mock('../lib/shortcut', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/shortcut')>()
+  return { ...actual, generateShortcutPassword: vi.fn(actual.generateShortcutPassword) }
+})
 // The account changes are replaced; whether a password exists and what a failure says stay real.
 vi.mock('../lib/shortcutAuth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/shortcutAuth')>()),
@@ -81,19 +86,32 @@ const owner = (...providers: string[]) => ({
   })),
   getIdTokenResult,
 })
-/** What getIdTokenResult(true) resolves with: a fresh token whose claims say whether the email is verified (or say nothing). */
-const tokenResult = (emailVerified?: boolean) => ({
-  token: 'fresh-id-token',
-  authTime: '2026-10-20T16:00:00Z',
-  issuedAtTime: '2026-10-20T17:00:00Z',
-  expirationTime: '2026-10-20T18:00:00Z',
+/** A moment some minutes before now, written as the SDK writes authTime (a UTC date string). */
+const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toUTCString()
+/**
+ * What getIdTokenResult resolves with: claims that say whether the email is verified (or say nothing), and authTime, when
+ * this session signed in with Google: a minute ago unless a test says otherwise, and missing for null.
+ */
+const tokenResult = (emailVerified?: boolean, signedInMinutesAgo: number | null = 1) => ({
+  token: 'id-token',
+  authTime: signedInMinutesAgo === null ? undefined : minutesAgo(signedInMinutesAgo),
+  issuedAtTime: minutesAgo(1),
+  expirationTime: minutesAgo(-59),
   signInProvider: 'google.com',
   signInSecondFactor: null,
   claims: emailVerified === undefined ? { email: OWNER } : { email: OWNER, email_verified: emailVerified },
 })
 const tooManyRequests = () => new FirebaseError('auth/too-many-requests', 'Firebase: Error (auth/too-many-requests).')
+const offline = () => new FirebaseError('auth/network-request-failed', 'Firebase: Error (auth/network-request-failed).')
 const COULD_NOT_SEND = 'Could not send the verification email: Firebase: Error (auth/too-many-requests).'
+const REVERIFY = 'Your email needs re-verifying for password sign-in.'
+const GATE = 'Create the password in step 1 first.'
 let signedIn = owner('google.com')
+
+/** Settings, saying how Back got there: "POP" when it went back through history, "PUSH" when it stacked a new entry. */
+function SettingsStub() {
+  return <p>{`Settings stub, reached by ${useNavigationType()}`}</p>
+}
 
 /** One path is a cold deep link; a list is the history that led to its last path. */
 const tree = (path: string | string[]) => (
@@ -101,7 +119,7 @@ const tree = (path: string | string[]) => (
     <MemoryRouter initialEntries={typeof path === 'string' ? [path] : path} initialIndex={typeof path === 'string' ? 0 : path.length - 1}>
       <Routes>
         <Route path="shortcut" element={<ShortcutPage />} />
-        <Route path="settings" element={<p>Settings stub</p>} />
+        <Route path="settings" element={<SettingsStub />} />
       </Routes>
     </MemoryRouter>
   </ToastProvider>
@@ -111,6 +129,11 @@ const page = (path: string | string[] = '/shortcut') => render(tree(path))
 const part = (name: string) => screen.getByRole('region', { name })
 /** Lets the page's pending callbacks run to their end (every mock here settles at once). */
 const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
+/** The same under fake timers, where settle and findBy* would wait on the stopped clock: act ends on a macrotask. */
+const flush = () => act(async () => {})
+const send = () => within(part('3. Test it here')).getByRole('button', { name: 'Send a test entry' })
+const typePassword = async (user: ReturnType<typeof userEvent.setup>, password = 'Pa55word') =>
+  user.type(within(part('3. Test it here')).getByLabelText('Shortcut password'), password)
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -149,10 +172,17 @@ describe('ShortcutPage', () => {
     page(['/settings', '/shortcut'])
     expect(screen.queryByRole('link', { name: 'Back to Settings' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(screen.getByText('Settings stub')).toBeInTheDocument()
+    // Back through history: a push of /settings would read PUSH here.
+    expect(screen.getByText('Settings stub, reached by POP')).toBeInTheDocument()
   })
 
   describe('1. Shortcut password', () => {
+    /** Each change with the button that starts it and the account it is offered on. */
+    const CHANGES = [
+      { button: 'Create password', providers: ['google.com'], change: linkShortcutPassword },
+      { button: 'Reset password', providers: ['google.com', 'password'], change: resetShortcutPassword },
+    ]
+
     it('creates a password, shows it once with its hint, and offers Reset from then on', async () => {
       const user = userEvent.setup()
       page()
@@ -166,6 +196,9 @@ describe('ShortcutPage', () => {
       const [account, created] = linkShortcutPassword.mock.calls[0] as [unknown, string]
       expect(account).toBe(signedIn)
       expect(created).toMatch(/^[A-Za-z0-9]{24}$/)
+      // Exactly the generator's password, made from the browser's own random bytes (the page passes no source of its own).
+      expect(generateShortcutPassword).toHaveBeenCalledExactlyOnceWith()
+      expect(created).toBe(vi.mocked(generateShortcutPassword).mock.results[0]?.value)
       expect(within(shown).getByText(created)).toBeInTheDocument()
       expect(within(shown).getByText('Shown once. Paste it into the Shortcut now.')).toBeInTheDocument()
       // The SDK changes the user object in place, which re-renders nothing: the page keeps what it did itself.
@@ -183,15 +216,17 @@ describe('ShortcutPage', () => {
       expect(within(password).queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    it('takes one change at a time', async () => {
-      linkShortcutPassword.mockReturnValue(new Promise<void>(() => {}))
+    it.each(CHANGES)('takes one change at a time ($button)', async ({ button, providers, change }) => {
+      signedIn = owner(...providers)
+      change.mockReturnValue(new Promise<void>(() => {}))
       const user = userEvent.setup()
       page()
-      const create = within(part('1. Shortcut password')).getByRole('button', { name: 'Create password' })
-      await user.click(create)
-      expect(create).toBeDisabled()
-      await user.click(create)
-      expect(linkShortcutPassword).toHaveBeenCalledTimes(1)
+      const control = within(part('1. Shortcut password')).getByRole('button', { name: button })
+      await user.click(control)
+      expect(control).toBeDisabled()
+      await user.click(control)
+      await settle()
+      expect(change).toHaveBeenCalledTimes(1)
     })
 
     it('resets an existing password and shows the new one', async () => {
@@ -235,7 +270,21 @@ describe('ShortcutPage', () => {
       expect(within(password).getByRole('button', { name: 'Create password' })).toBeEnabled()
       // Only a blocked sign-in window asks for the confirmation tap.
       expect(within(password).queryByRole('button', { name: 'Confirm with Google' })).not.toBeInTheDocument()
-      expect(getIdTokenResult).not.toHaveBeenCalled()
+      // No claim check after a failure (the read before the change is the cached token's).
+      expect(getIdTokenResult).not.toHaveBeenCalledWith(true)
+    })
+
+    it('starts every change afresh: the line of a failed one goes', async () => {
+      linkShortcutPassword.mockRejectedValueOnce({ code: 'auth/operation-not-allowed' })
+      const user = userEvent.setup()
+      page()
+      const password = part('1. Shortcut password')
+      await user.click(within(password).getByRole('button', { name: 'Create password' }))
+      await within(password).findByRole('alert')
+      await user.click(within(password).getByRole('button', { name: 'Create password' }))
+      await within(password).findByRole('group', { name: 'New password' })
+      await settle()
+      expect(within(password).queryByRole('alert')).not.toBeInTheDocument()
     })
 
     it('opens the blocked Google sign-in from a tap of its own, then makes the same change', async () => {
@@ -245,7 +294,7 @@ describe('ShortcutPage', () => {
       page()
       const password = part('1. Shortcut password')
       await user.click(within(password).getByRole('button', { name: 'Reset password' }))
-      expect(await within(password).findByRole('alert')).toHaveTextContent('The sign-in window was blocked. Tap "Confirm with Google", then try again.')
+      expect(await within(password).findByRole('alert')).toHaveTextContent('The sign-in window was blocked. Tap "Confirm with Google" to go on.')
 
       fireEvent.click(within(password).getByRole('button', { name: 'Confirm with Google' }))
       // Before anything is awaited: a browser opens a popup only from within the tap.
@@ -260,17 +309,108 @@ describe('ShortcutPage', () => {
       expect(within(password).queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    it('makes no change when the Google confirmation is cancelled, and says so', async () => {
+    it('makes no change when the Google confirmation is cancelled, says so, and is ready again', async () => {
       linkShortcutPassword.mockRejectedValueOnce({ code: 'auth/popup-blocked' })
-      reauthenticateOwner.mockRejectedValue({ code: 'auth/popup-closed-by-user' })
+      let cancel: (reason: unknown) => void = () => {}
+      reauthenticateOwner.mockReturnValue(new Promise<void>((_, reject) => (cancel = reject)))
       const user = userEvent.setup()
       page()
       const password = part('1. Shortcut password')
       await user.click(within(password).getByRole('button', { name: 'Create password' }))
       await user.click(await within(password).findByRole('button', { name: 'Confirm with Google' }))
+      // While the Google window is open, nothing else can start.
+      expect(within(password).getByRole('button', { name: 'Create password' })).toBeDisabled()
+      expect(within(password).queryByRole('button', { name: 'Confirm with Google' })).not.toBeInTheDocument()
+
+      await act(async () => cancel({ code: 'auth/popup-closed-by-user' }))
       expect(await within(password).findByText('Sign-in was cancelled.')).toHaveAttribute('role', 'alert')
       expect(linkShortcutPassword).toHaveBeenCalledTimes(1)
       expect(within(password).getByText('No password yet')).toBeInTheDocument()
+      expect(within(password).getByRole('button', { name: 'Create password' })).toBeEnabled()
+    })
+
+    describe('after a long session: Firebase allows the change only within minutes of a sign-in', () => {
+      it.each(CHANGES)('asks for no Google sign-in within 4 minutes of the last one, read from the cached token ($button)', async ({ button, providers, change }) => {
+        signedIn = owner(...providers)
+        getIdTokenResult.mockResolvedValue(tokenResult(true, 3.5))
+        const user = userEvent.setup()
+        page()
+        const password = part('1. Shortcut password')
+        await user.click(within(password).getByRole('button', { name: button }))
+        await within(password).findByRole('group', { name: 'New password' })
+        expect(reauthenticateOwner).not.toHaveBeenCalled()
+        expect(change).toHaveBeenCalledTimes(1)
+        // Not refreshed: a request before the popup would make the browser more likely to block it.
+        expect(getIdTokenResult).toHaveBeenNthCalledWith(1)
+      })
+
+      it.each(CHANGES)('signs in with Google first when the last sign-in is more than 4 minutes old ($button)', async ({ button, providers, change }) => {
+        signedIn = owner(...providers)
+        getIdTokenResult.mockResolvedValue(tokenResult(true, 4.5))
+        const user = userEvent.setup()
+        page()
+        const password = part('1. Shortcut password')
+        await user.click(within(password).getByRole('button', { name: button }))
+        await within(password).findByRole('group', { name: 'New password' })
+        expect(reauthenticateOwner).toHaveBeenCalledExactlyOnceWith(signedIn)
+        expect(change).toHaveBeenCalledTimes(1)
+        expect(reauthenticateOwner.mock.invocationCallOrder[0]).toBeLessThan(change.mock.invocationCallOrder[0])
+      })
+
+      it('signs in with Google first when the token does not say when the last sign-in was', async () => {
+        getIdTokenResult.mockResolvedValue(tokenResult(true, null))
+        const user = userEvent.setup()
+        page()
+        const password = part('1. Shortcut password')
+        await user.click(within(password).getByRole('button', { name: 'Create password' }))
+        await within(password).findByRole('group', { name: 'New password' })
+        expect(reauthenticateOwner).toHaveBeenCalledExactlyOnceWith(signedIn)
+        expect(reauthenticateOwner.mock.invocationCallOrder[0]).toBeLessThan(linkShortcutPassword.mock.invocationCallOrder[0])
+      })
+
+      it.each(['auth/popup-closed-by-user', 'auth/cancelled-popup-request'])('makes no change when that sign-in is cancelled (%s), and is ready again', async (code) => {
+        getIdTokenResult.mockResolvedValue(tokenResult(true, 10))
+        reauthenticateOwner.mockRejectedValue({ code })
+        const user = userEvent.setup()
+        page()
+        const password = part('1. Shortcut password')
+        await user.click(within(password).getByRole('button', { name: 'Create password' }))
+        expect(await within(password).findByRole('alert')).toHaveTextContent('Sign-in was cancelled.')
+        expect(linkShortcutPassword).not.toHaveBeenCalled()
+        expect(within(password).getByText('No password yet')).toBeInTheDocument()
+        expect(within(password).getByRole('button', { name: 'Create password' })).toBeEnabled()
+        expect(within(password).queryByRole('button', { name: 'Confirm with Google' })).not.toBeInTheDocument()
+      })
+
+      it('offers Confirm with Google when that sign-in window is blocked, then makes the change without asking again', async () => {
+        getIdTokenResult.mockResolvedValue(tokenResult(true, 10))
+        reauthenticateOwner.mockRejectedValueOnce({ code: 'auth/popup-blocked' }).mockResolvedValueOnce(undefined)
+        const user = userEvent.setup()
+        page()
+        const password = part('1. Shortcut password')
+        await user.click(within(password).getByRole('button', { name: 'Create password' }))
+        expect(await within(password).findByRole('alert')).toHaveTextContent('The sign-in window was blocked. Tap "Confirm with Google" to go on.')
+        expect(linkShortcutPassword).not.toHaveBeenCalled()
+
+        fireEvent.click(within(password).getByRole('button', { name: 'Confirm with Google' }))
+        expect(reauthenticateOwner).toHaveBeenCalledTimes(2)
+        await within(password).findByRole('group', { name: 'New password' })
+        expect(linkShortcutPassword).toHaveBeenCalledTimes(1)
+        // Signed in just now: no third popup.
+        expect(reauthenticateOwner).toHaveBeenCalledTimes(2)
+      })
+
+      it("says why when the session's token cannot be read, and changes nothing", async () => {
+        getIdTokenResult.mockRejectedValue(offline())
+        const user = userEvent.setup()
+        page()
+        const password = part('1. Shortcut password')
+        await user.click(within(password).getByRole('button', { name: 'Create password' }))
+        expect(await within(password).findByRole('alert')).toHaveTextContent("You're offline.")
+        expect(reauthenticateOwner).not.toHaveBeenCalled()
+        expect(linkShortcutPassword).not.toHaveBeenCalled()
+        expect(within(password).getByRole('button', { name: 'Create password' })).toBeEnabled()
+      })
     })
 
     it.each([
@@ -321,7 +461,8 @@ describe('ShortcutPage', () => {
     })
 
     it('says nothing when the fresh token cannot be read: the test reads the same claim from the Shortcut sign-in', async () => {
-      getIdTokenResult.mockRejectedValue(new FirebaseError('auth/network-request-failed', 'Firebase: Error (auth/network-request-failed).'))
+      // The cached token before the change reads; the one refreshed after it does not.
+      getIdTokenResult.mockImplementation((forceRefresh?: boolean) => (forceRefresh ? Promise.reject(offline()) : Promise.resolve(tokenResult(true))))
       const user = userEvent.setup()
       page()
       const password = part('1. Shortcut password')
@@ -330,6 +471,40 @@ describe('ShortcutPage', () => {
       await settle()
       expect(getIdTokenResult).toHaveBeenCalledWith(true)
       expect(sendShortcutVerificationEmail).not.toHaveBeenCalled()
+      expect(within(password).queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('takes the re-verify sentence away as the next change starts', async () => {
+      getIdTokenResult.mockResolvedValue(tokenResult(false))
+      const user = userEvent.setup()
+      page()
+      const password = part('1. Shortcut password')
+      await user.click(within(password).getByRole('button', { name: 'Create password' }))
+      expect(await within(password).findByRole('alert')).toHaveTextContent(REVERIFY)
+
+      resetShortcutPassword.mockReturnValue(new Promise<void>(() => {}))
+      await user.click(within(password).getByRole('button', { name: 'Reset password' }))
+      await waitFor(() => expect(resetShortcutPassword).toHaveBeenCalledTimes(1))
+      expect(within(password).queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('takes the re-verify sentence away once the test signs in verified, and keeps it while the email is still unverified', async () => {
+      getIdTokenResult.mockResolvedValue(tokenResult(false))
+      signInWithPassword.mockResolvedValueOnce({ idToken: 't', emailVerified: false })
+      const user = userEvent.setup()
+      page()
+      const password = part('1. Shortcut password')
+      await user.click(within(password).getByRole('button', { name: 'Create password' }))
+      expect(await within(password).findByRole('alert')).toHaveTextContent(REVERIFY)
+
+      await typePassword(user)
+      await user.click(send())
+      expect(await within(part('3. Test it here')).findByRole('alert')).toHaveTextContent('Your email is not marked verified for password sign-in.')
+      expect(within(password).getByRole('alert')).toHaveTextContent(REVERIFY)
+
+      // The owner opened the link: the next test's sign-in carries the claim.
+      await user.click(send())
+      expect(await screen.findByRole('status')).toHaveTextContent('Test entry added')
       expect(within(password).queryByRole('alert')).not.toBeInTheDocument()
     })
   })
@@ -374,9 +549,29 @@ describe('ShortcutPage', () => {
   })
 
   describe('3. Test it here', () => {
-    const send = () => within(part('3. Test it here')).getByRole('button', { name: 'Send a test entry' })
-    const typePassword = async (user: ReturnType<typeof userEvent.setup>, password = 'Pa55word') =>
-      user.type(within(part('3. Test it here')).getByLabelText('Shortcut password'), password)
+    beforeEach(() => {
+      signedIn = owner('google.com', 'password')
+    })
+
+    it('waits for the password of step 1: until there is one, the field and the button are off and a hint says why', async () => {
+      signedIn = owner('google.com')
+      const user = userEvent.setup()
+      page()
+      const test = part('3. Test it here')
+      const field = within(test).getByLabelText('Shortcut password')
+      expect(field).toBeDisabled()
+      expect(field).toHaveAccessibleDescription(GATE)
+      expect(send()).toBeDisabled()
+      expect(within(test).getByText(GATE)).toBeInTheDocument()
+
+      // Made on this visit, which the user object does not show: the test opens at once.
+      await user.click(within(part('1. Shortcut password')).getByRole('button', { name: 'Create password' }))
+      await within(part('1. Shortcut password')).findByRole('group', { name: 'New password' })
+      expect(field).toBeEnabled()
+      expect(within(test).queryByText(GATE)).not.toBeInTheDocument()
+      await typePassword(user)
+      expect(send()).toBeEnabled()
+    })
 
     it("makes the Shortcut's two calls and offers Undo for the entry they wrote", async () => {
       vi.useFakeTimers({ toFake: ['Date'] })
@@ -386,6 +581,7 @@ describe('ShortcutPage', () => {
       const field = within(part('3. Test it here')).getByLabelText('Shortcut password')
       expect(field).toHaveAttribute('type', 'password')
       expect(field).toHaveAttribute('autocomplete', 'off')
+      expect(within(part('3. Test it here')).queryByText(GATE)).not.toBeInTheDocument()
       await typePassword(user)
       await user.click(send())
 
@@ -411,6 +607,43 @@ describe('ShortcutPage', () => {
       await user.click(send())
       await user.click(within(await screen.findByRole('status')).getByRole('button', { name: 'Undo' }))
       expect(await screen.findByText("Could not undo: You don't have access to this data (signed in with the wrong account?)")).toBeInTheDocument()
+    })
+
+    describe('keeps up as long as every Undo, 6 s', () => {
+      beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      })
+
+      /** By fireEvent: user-event waits on the faked setTimeout. */
+      const sendNow = async () => {
+        fireEvent.change(within(part('3. Test it here')).getByLabelText('Shortcut password'), { target: { value: 'Pa55word' } })
+        fireEvent.click(send())
+        await flush()
+      }
+
+      it('the toast with the Undo', async () => {
+        page()
+        await sendNow()
+        expect(screen.getByRole('status')).toHaveTextContent('Test entry added')
+        act(() => vi.advanceTimersByTime(ACTION_DURATION_MS - 1))
+        expect(screen.getByRole('status')).toHaveTextContent('Test entry added')
+        act(() => vi.advanceTimersByTime(1))
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      })
+
+      it('the message that the Undo failed', async () => {
+        deleteTransaction.mockRejectedValue(new FirebaseError('permission-denied', 'Missing or insufficient permissions.'))
+        page()
+        await sendNow()
+        fireEvent.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }))
+        await flush()
+        const failed = "Could not undo: You don't have access to this data (signed in with the wrong account?)"
+        expect(screen.getByRole('status')).toHaveTextContent(failed)
+        act(() => vi.advanceTimersByTime(ACTION_DURATION_MS - 1))
+        expect(screen.getByRole('status')).toHaveTextContent(failed)
+        act(() => vi.advanceTimersByTime(1))
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      })
     })
 
     it('explains an unverified email instead of writing, and sends the verification email', async () => {
@@ -466,6 +699,19 @@ describe('ShortcutPage', () => {
       expect(send()).toBeEnabled()
     })
 
+    it('starts every test afresh: the line of a failed one goes', async () => {
+      signInWithPassword.mockRejectedValueOnce(new ShortcutRestError('sign-in', 400, 'INVALID_LOGIN_CREDENTIALS'))
+      const user = userEvent.setup()
+      page()
+      const test = part('3. Test it here')
+      await typePassword(user)
+      await user.click(send())
+      await within(test).findByRole('alert')
+      await user.click(send())
+      expect(await screen.findByRole('status')).toHaveTextContent('Test entry added')
+      expect(within(test).queryByRole('alert')).not.toBeInTheDocument()
+    })
+
     it('takes one test at a time', async () => {
       signInWithPassword.mockReturnValue(new Promise(() => {}))
       const user = userEvent.setup()
@@ -510,6 +756,17 @@ describe('ShortcutPage', () => {
       await user.click(send())
       await screen.findByRole('status')
       expect(signInWithPassword).toHaveBeenLastCalledWith(OWNER, 'Pa55word', 'key', DEFAULT_HOSTS)
+    })
+
+    it("keeps to Google's hosts on the dev server while VITE_USE_EMULATORS is not set at all", async () => {
+      vi.stubEnv('VITE_USE_EMULATORS', undefined)
+      const user = userEvent.setup()
+      page()
+      await typePassword(user)
+      await user.click(send())
+      await screen.findByRole('status')
+      expect(signInWithPassword).toHaveBeenCalledWith(OWNER, 'Pa55word', 'key', DEFAULT_HOSTS)
+      expect(createTransactionViaRest).toHaveBeenCalledWith(expect.objectContaining({ note: 'Shortcut test' }), 'money-tracker-vlad', 't', DEFAULT_HOSTS)
     })
   })
 

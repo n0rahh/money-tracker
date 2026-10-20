@@ -57,22 +57,26 @@ export function generateShortcutPassword(random: (bytes: Uint8Array<ArrayBuffer>
 
 /**
  * The text pasted into the Shortcut's categories step: `{ "name": "id" }` for the active categories of one kind, in their
- * order (the order the Shortcut's list shows them in), two spaces deep. A repeated name gets " (2)", " (3)", …: a JSON
- * object cannot hold one key twice, so without the suffix one of the categories would silently drop out of the list.
- * Archived categories stay out, as in every picker of the app.
+ * order (the order the Shortcut's list shows them in), two spaces deep. A name loses its dots: Shortcuts reads a "." in a
+ * key as a path into the dictionary (as step 14 does with "error.message"), so "Dr. visits" would find no id at step 9.
+ * A repeated name, also one that repeats only once its dots are gone, gets " (2)", " (3)", …: a JSON object cannot hold
+ * one key twice, so without the suffix one of the categories would silently drop out of the list. Archived categories
+ * stay out, as in every picker of the app.
  */
 export function categoryDictionary(categories: Category[], kind: Kind): string {
   const active = categories.filter((c) => c.kind === kind && !c.archived).sort((a, b) => a.order - b.order)
   // The keys taken so far in a Set, not an object: "constructor" or "toString" would already be "in" a plain object.
   const taken = new Set<string>()
-  const entries: [string, string][] = []
+  const lines: string[] = []
   for (const { id, name } of active) {
-    let key = name
-    for (let n = 2; taken.has(key); n++) key = `${name} (${n})`
+    const base = name.replaceAll('.', '')
+    let key = base
+    for (let n = 2; taken.has(key); n++) key = `${base} (${n})`
     taken.add(key)
-    entries.push([key, id])
+    lines.push(`  ${JSON.stringify(key)}: ${JSON.stringify(id)}`)
   }
-  return JSON.stringify(Object.fromEntries(entries), null, 2)
+  // Written line by line rather than through an object, which would put names of digits only ("2026", "7") first.
+  return lines.length === 0 ? '{}' : `{\n${lines.join(',\n')}\n}`
 }
 
 /**
