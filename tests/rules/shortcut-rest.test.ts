@@ -54,11 +54,10 @@ const signUp = async (email: string) => (await identity('signUp', { email, passw
 /** Marks the email verified as an admin would: the emulator takes `Bearer owner` for admin credentials. */
 const markVerified = (localId: string) => identity('update', { localId, emailVerified: true }, { Authorization: 'Bearer owner' })
 
-/** The Shortcut's write with a body of the test's own, through fetch alone; resolves with the answer's status. */
-async function rawWrite(idToken: string, body: string): Promise<number> {
+/** The Shortcut's write as step 14 sends it, a text body through fetch alone; resolves with the answer's status and JSON. */
+async function rawWrite(idToken: string, body: string): Promise<{ status: number; json: Record<string, unknown> }> {
   const res = await fetch(transactionsUrl(PROJECT, HOSTS), { method: 'POST', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' }, body })
-  await res.body?.cancel()
-  return res.status
+  return { status: res.status, json: (await res.json()) as Record<string, unknown> }
 }
 const storedCount = async () => (await getDocs(collection(owner(), 'transactions'))).size
 
@@ -87,8 +86,11 @@ describe("the Shortcut's REST calls against the rules", () => {
     const { idToken } = await signInWithPassword(OWNER, PASSWORD, API_KEY, HOSTS)
     // The Global Constraints JSON as the Shortcut's Text action writes it out, the time at +02:00 as the phone gives it.
     const body = '{"fields":{"kind":{"stringValue":"expense"},"amount":{"integerValue":"1250"},"categoryId":{"stringValue":"c1"},"note":{"stringValue":""},"date":{"stringValue":"2026-10-20"},"at":{"timestampValue":"2026-10-20T19:05:00+02:00"},"source":{"stringValue":"shortcut"}}}'
-    expect(await rawWrite(idToken, body)).toBe(200)
+    const { status, json } = await rawWrite(idToken, body)
+    expect(status).toBe(200)
     const [stored] = (await getDocs(collection(owner(), 'transactions'))).docs
+    // What step 14's If looks for: the answer to a stored entry has the document's name.
+    expect(json.name).toBe(`projects/${PROJECT}/databases/(default)/documents/transactions/${stored.id}`)
     const tx = mapTransaction(stored.id, stored.data())
     expect(tx).toMatchObject({ amount: 1250, date: '2026-10-20', source: 'shortcut' })
     expect(tx.at.isEqual(Timestamp.fromDate(ENTRY.at))).toBe(true)
@@ -117,9 +119,13 @@ describe("the Shortcut's REST calls against the rules", () => {
     const { idToken } = await signInWithPassword(OWNER, PASSWORD, API_KEY, HOSTS)
     const withAmount = (amount: object) => JSON.stringify({ fields: { ...firestoreFields(ENTRY), amount } })
     // A double, even a whole one, is no int to the rules; 0 is no amount.
-    expect(await rawWrite(idToken, withAmount({ doubleValue: 12.5 }))).toBe(403)
-    expect(await rawWrite(idToken, withAmount({ doubleValue: 1250 }))).toBe(403)
-    expect(await rawWrite(idToken, withAmount({ integerValue: '0' }))).toBe(403)
+    for (const amount of [{ doubleValue: 12.5 }, { doubleValue: 1250 }, { integerValue: '0' }]) {
+      const { status, json } = await rawWrite(idToken, withAmount(amount))
+      expect(status).toBe(403)
+      // Step 14's If takes the other branch: no name, and an error.message for the notification.
+      expect(json).not.toHaveProperty('name')
+      expect(json).toMatchObject({ error: { status: 'PERMISSION_DENIED', message: expect.any(String) } })
+    }
     expect(await storedCount()).toBe(0)
   })
 

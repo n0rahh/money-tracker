@@ -57,6 +57,9 @@ export function shortcutAuthErrorText(e: unknown): string {
   switch (authCode(e)) {
     case 'auth/operation-not-allowed':
       return PROVIDER_OFF_TEXT
+    // The SDK links a password through accounts:signUp, which the console's "Enable create (sign-up)" switch blocks too.
+    case 'auth/admin-restricted-operation':
+      return 'Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again.'
     case 'auth/provider-already-linked':
       return 'A Shortcut password already exists. Reset it instead.'
     case 'auth/no-such-provider':

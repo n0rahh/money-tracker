@@ -83,7 +83,7 @@ export const SHORTCUT_RECIPE: ReadonlyArray<{ title: string; detail: string }> =
   { title: 'Ask for Input', detail: 'Input type Number with the prompt "Amount?" and decimal numbers allowed.' },
   { title: 'Calculate', detail: 'Multiply the Provided Input by 100, which gives the amount in cents.' },
   { title: 'Round Number', detail: 'Round the result to the nearest whole number (Ones Place).' },
-  { title: 'Format Number', detail: 'Format it with 0 decimal places and no grouping, so that the amount reads 1250, never 1,250.' },
+  { title: 'Format Number + Replace Text', detail: 'Format Number, 0 decimal places; then Replace Text, regular expression on, find [^0-9] and replace with nothing, so the minor units are plain digits in every locale.' },
   { title: 'Text (categories)', detail: 'Paste the expense categories copied from this page.' },
   { title: 'Get Dictionary from Input', detail: 'Turn that text into a dictionary of category names and ids.' },
   { title: 'Get Dictionary Value (All Keys)', detail: 'Get All Keys of the dictionary, which are the category names.' },
@@ -92,8 +92,8 @@ export const SHORTCUT_RECIPE: ReadonlyArray<{ title: string; detail: string }> =
   { title: 'Get Contents of URL (sign in)', detail: 'POST to the sign-in URL with the JSON body email, password and returnSecureToken, a Boolean set to true.' },
   { title: 'Get Dictionary Value (idToken)', detail: 'Get the Value for idToken from the answer, the sign-in token for the next request.' },
   { title: 'Format Date (twice)', detail: 'Format the Current Date as yyyy-MM-dd (Custom), then again as ISO 8601 with the time included.' },
-  { title: 'Text (fields) + Get Dictionary from Input', detail: "Write the entry's typed fields as JSON with the amount, the id and both dates in place, then turn the text into a dictionary." },
-  { title: 'Get Contents of URL (write) + Show Notification', detail: 'POST to the transactions URL with the header Authorization set to "Bearer " and the idToken, and a JSON body whose one key fields holds that dictionary, then show the notification "Added Provided Input to Chosen Item".' },
+  { title: 'Text (body)', detail: 'A Text action holding the whole JSON body {"fields":{…}} with the four variables inserted: the digits from step 4, the id from step 9, the two dates from step 12.' },
+  { title: 'Get Contents of URL (write) + If + Show Notification', detail: 'POST the transactions URL with headers Authorization "Bearer <idToken>" and Content-Type "application/json", Request Body "File" set to the Text from step 13; Get Dictionary Value "name" from the result; If it has any value, Show Notification "Added <Provided Input> to <Chosen Item>", otherwise show the result\'s "error.message".' },
 ]
 
 /** What the app says while the Email/Password provider is still off in the console (only the owner can turn it on there). */

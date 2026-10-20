@@ -122,6 +122,7 @@ describe('sendShortcutVerificationEmail', () => {
 describe('shortcutAuthErrorText', () => {
   it.each([
     ['auth/operation-not-allowed', 'Email/password sign-in is off. Turn it on in Firebase Console → Authentication → Sign-in method.'],
+    ['auth/admin-restricted-operation', 'Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again.'],
     ['auth/provider-already-linked', 'A Shortcut password already exists. Reset it instead.'],
     ['auth/no-such-provider', 'There is no Shortcut password to remove.'],
     ['auth/popup-closed-by-user', 'Sign-in was cancelled.'],

@@ -147,7 +147,7 @@ describe('SHORTCUT_RECIPE', () => {
       'Ask for Input',
       'Calculate',
       'Round Number',
-      'Format Number',
+      'Format Number + Replace Text',
       'Text (categories)',
       'Get Dictionary from Input',
       'Get Dictionary Value (All Keys)',
@@ -156,8 +156,8 @@ describe('SHORTCUT_RECIPE', () => {
       'Get Contents of URL (sign in)',
       'Get Dictionary Value (idToken)',
       'Format Date (twice)',
-      'Text (fields) + Get Dictionary from Input',
-      'Get Contents of URL (write) + Show Notification',
+      'Text (body)',
+      'Get Contents of URL (write) + If + Show Notification',
     ])
     for (const { detail } of SHORTCUT_RECIPE) {
       expect(detail).toMatch(/^[A-Z].*\.$/)
