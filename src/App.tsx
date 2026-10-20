@@ -15,6 +15,7 @@ const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((m) => (
 const CategoryPage = lazy(() => import('./pages/CategoryPage').then((m) => ({ default: m.CategoryPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const RecurringPage = lazy(() => import('./pages/RecurringPage').then((m) => ({ default: m.RecurringPage })))
+const ShortcutPage = lazy(() => import('./pages/ShortcutPage').then((m) => ({ default: m.ShortcutPage })))
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
                   <Route path="category/:id" element={<CategoryPage />} />
                   <Route path="settings" element={<SettingsPage />} />
                   <Route path="recurring" element={<RecurringPage />} />
+                  <Route path="shortcut" element={<ShortcutPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

@@ -14,7 +14,15 @@ const { useAuth, useBudgets, useCategories, useSettings, useTransactions, useRec
   materialiseRecurring: vi.fn(),
 }))
 // No Firebase here: the SDK set-up is replaced, the owner is signed in, and every hook a route reads is a stub.
-vi.mock('./lib/firebase', () => ({ ALLOWED_EMAIL: 'owner@example.com', auth: {}, db: {}, googleProvider: {}, isFirebaseConfigured: true }))
+vi.mock('./lib/firebase', () => ({
+  ALLOWED_EMAIL: 'owner@example.com',
+  auth: {},
+  db: {},
+  googleProvider: {},
+  isFirebaseConfigured: true,
+  firebaseProjectId: 'demo-money-tracker',
+  firebaseApiKey: 'fake-api-key',
+}))
 vi.mock('./context/AuthContext', () => ({ AuthProvider: ({ children }: { children: ReactNode }) => children, useAuth }))
 vi.mock('./hooks/useBudgets', () => ({ useBudgets }))
 vi.mock('./hooks/useCategories', () => ({ useCategories }))
@@ -30,7 +38,9 @@ const LOAD = { timeout: 3000 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useAuth.mockReturnValue({ user: { email: 'owner@example.com' }, loading: false, configured: true, error: null, signIn: vi.fn(), logOut: vi.fn() })
+  // Signed in with Google only: Settings and the Siri & Apple Watch page read the providers.
+  const user = { email: 'owner@example.com', providerData: [{ providerId: 'google.com', uid: '104729', email: 'owner@example.com', displayName: null, phoneNumber: null, photoURL: null }] }
+  useAuth.mockReturnValue({ user, loading: false, configured: true, error: null, signIn: vi.fn(), logOut: vi.fn() })
   useBudgets.mockReturnValue({ budgets: new Map(), loading: false, error: null })
   useCategories.mockReturnValue({ categories: [COFFEE], byId: new Map([[COFFEE.id, COFFEE]]), loading: false, error: null })
   useSettings.mockReturnValue({ settings: { currency: 'EUR', locale: 'en' }, loading: false, fromCache: false, error: null })
@@ -84,6 +94,7 @@ describe('App routes', () => {
     ['/category/c1', 'Coffee'],
     ['/settings', 'Settings'],
     ['/recurring', 'Recurring'],
+    ['/shortcut', 'Siri & Apple Watch'],
   ])('%s shows its own page, %s', async (path, heading) => {
     window.history.replaceState(null, '', path)
     render(<App />)

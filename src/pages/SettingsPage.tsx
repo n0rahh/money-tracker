@@ -12,6 +12,7 @@ import { currentMonth } from '../lib/dates'
 import { getAllBudgets, getAllCategories, getAllRecurring, getAllTransactions, saveSettings } from '../lib/firestore'
 import { minorUnitDigits } from '../lib/money'
 import { readErrorText } from '../lib/readError'
+import { hasPasswordProvider } from '../lib/shortcutAuth'
 
 const DECIMALS_WARNING =
   'Switching between currencies with a different number of decimals changes how stored amounts are read (for example 12.50 becomes ¥1,250). Continue?'
@@ -136,6 +137,14 @@ export function SettingsPage() {
           <span>Recurring</span>
           <span className="flex items-center gap-1 text-muted">
             <span className="tnum">{recurringLoading || recurringError ? '—' : running}</span>
+            <ChevronRight size={18} aria-hidden />
+          </span>
+        </Link>
+        {/* From the account's sign-in methods, read on every render: the SDK adds the password to them in place on Create. */}
+        <Link to="/shortcut" className="flex min-h-12 w-full items-center justify-between border-t border-border px-4 active:bg-surface-2">
+          <span>Siri & Apple Watch</span>
+          <span className="flex items-center gap-1 text-muted">
+            <span className="text-sm">{user && hasPasswordProvider(user) ? 'Password set' : 'Not set up'}</span>
             <ChevronRight size={18} aria-hidden />
           </span>
         </Link>

@@ -34,6 +34,8 @@ vi.mock('../hooks/useSettings', () => ({ useSettings }))
 vi.mock('../hooks/useRecurring', () => ({ useRecurring }))
 vi.mock('../lib/firestore', () => ({ saveSettings, getAllTransactions, getAllCategories, getAllBudgets, getAllRecurring }))
 vi.mock('../lib/platform', () => ({ isStandalone }))
+// The Siri & Apple Watch row reads the account's providers through lib/shortcutAuth, which imports the SDK set-up: none here.
+vi.mock('../lib/firebase', () => ({ googleProvider: { providerId: 'google.com' } }))
 // The files are built for real; only handing them over (share sheet or download) is replaced.
 vi.mock('../lib/exporting', async (importOriginal) => ({ ...(await importOriginal<typeof import('../lib/exporting')>()), shareOrDownload }))
 // The sheet has tests of its own: here, only that the page opens and closes it, lazily, with the settings it needs.
@@ -49,6 +51,18 @@ vi.mock('../components/ImportSheet', () => ({
 }))
 
 const logOut = vi.fn()
+/** The signed-in owner, with one provider entry per sign-in method, as Firebase's User lists them. */
+const account = (...providers: string[]) => ({
+  email: OWNER,
+  providerData: providers.map((providerId) => ({
+    providerId,
+    uid: providerId === 'password' ? OWNER : '104729',
+    email: OWNER,
+    displayName: providerId === 'password' ? null : 'Vlad',
+    phoneNumber: null,
+    photoURL: null,
+  })),
+})
 const GROCERIES: Category = { id: 'groceries', name: 'Groceries', icon: 'ShoppingCart', color: 'emerald', kind: 'expense', order: 0, archived: false }
 const SALARY: Category = { id: 'salary', name: 'Salary', icon: 'Banknote', color: 'emerald', kind: 'income', order: 0, archived: false }
 const CATEGORIES = [GROCERIES, SALARY]
@@ -71,6 +85,7 @@ const page = () =>
         <Routes>
           <Route path="settings" element={<SettingsPage />} />
           <Route path="recurring" element={<p>Recurring stub</p>} />
+          <Route path="shortcut" element={<p>Shortcut stub</p>} />
         </Routes>
       </MemoryRouter>
     </ToastProvider>,
@@ -78,7 +93,7 @@ const page = () =>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useAuth.mockReturnValue({ user: { email: OWNER }, logOut })
+  useAuth.mockReturnValue({ user: account('google.com'), logOut })
   logOut.mockResolvedValue(undefined)
   withSettings({ currency: 'PLN', locale: null })
   withTemplates([])
@@ -166,6 +181,25 @@ describe('SettingsPage', () => {
       })
       page()
       expect(screen.getByRole('link', { name: /^Recurring/ })).toHaveTextContent(/^Recurring—$/)
+    })
+  })
+
+  describe('Siri & Apple Watch', () => {
+    const row = () => screen.getByRole('link', { name: /^Siri & Apple Watch/ })
+
+    it('links to its page, and reads Not set up while the account has no password', async () => {
+      const user = userEvent.setup()
+      page()
+      expect(row()).toHaveAttribute('href', '/shortcut')
+      expect(row()).toHaveTextContent(/^Siri & Apple WatchNot set up$/)
+      await user.click(row())
+      expect(screen.getByText('Shortcut stub')).toBeInTheDocument()
+    })
+
+    it('reads Password set once the account has a password besides Google', () => {
+      useAuth.mockReturnValue({ user: account('google.com', 'password'), logOut })
+      page()
+      expect(row()).toHaveTextContent(/^Siri & Apple WatchPassword set$/)
     })
   })
 
