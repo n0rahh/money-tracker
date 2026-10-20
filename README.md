@@ -16,7 +16,7 @@ Same stack and shape as [n0rahh/food-tracker](https://github.com/n0rahh/food-tra
 | [Milestone 2 plan](docs/superpowers/plans/2026-10-17-m2-insights.md) | The executed plan for Trends, Compare, the category page, the pace line, the daily strip and the suggestion chips |
 | [Milestone 3 plan](docs/superpowers/plans/2026-10-17-m3-power.md) | The executed plan for budgets, recurring entries, search, the month picker, undo, export/import and the lazy pages; its "Deviations accepted in execution" block says where the code differs from its task text |
 | [Milestone 4 plan](docs/superpowers/plans/2026-10-20-m4-shortcut.md) | The executed plan for the Siri & Apple Watch quick add: the Shortcut password, the REST client and its emulator test, the Settings page with the in-app test, and the recipe |
-| Rulings: [M1](docs/m1-rulings.md), [M2](docs/m2-rulings.md), [M3](docs/m3-rulings.md) | The decisions taken on the owner's behalf while executing each plan, in order, each with what it costs if wrong |
+| Rulings: [M1](docs/m1-rulings.md), [M2](docs/m2-rulings.md), [M3](docs/m3-rulings.md), [M4](docs/m4-rulings.md) | The decisions taken on the owner's behalf while executing each plan, in order, each with what it costs if wrong |
 | [Device checklist](docs/device-checklist.md) | First-deploy steps and the iPhone verification list |
 | [Shortcut recipe](docs/shortcut.md) | How to build the Apple Shortcut for Siri and the watch, action by action, with the income copy, troubleshooting and the security note |
 
@@ -55,7 +55,7 @@ npm run lint
 npm test                      # Vitest + Testing Library (jsdom)
 npm run test:scripts          # node:test for scripts/ (the .mmbak dump)
 export PATH="/opt/homebrew/opt/openjdk/bin:$PATH" && npm run test:rules   # 5 files against the Auth and Firestore emulators: the rules, the app's own writes and reads, and the Shortcut's exact HTTP calls
-npm run build                 # warning-free; first paint ≈ 302 kB gzipped (budget 320), all JS ≈ 323 kB (budget 350)
+npm run build                 # warning-free; first paint ≈ 305 kB gzipped (budget 320), all JS ≈ 333 kB (budget 350)
 ```
 
 ## Deploy
