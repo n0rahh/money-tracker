@@ -136,15 +136,16 @@ On one phone none of this shows. It is what to expect once the Mac, or a second 
 
 ### Console and the app
 - [ ] Firebase Console → Authentication → Sign-in method → add Email/Password and enable it; "Email link (passwordless)" stays off.
-- [ ] Settings → "Siri & Apple Watch" reads "Not set up". On the page, "Create password": a 24-character password shows once with "Shown once. Paste it into the Shortcut now.", and "Reset password" and "Remove" appear; back in Settings the row reads "Password set". If Firebase asks for a recent sign-in, the Google popup opens once and the password is still created.
+- [ ] Settings → "Siri & Apple Watch" reads "Not set up". With "Enable create (sign-up)" still off (Authentication → Settings → User actions, off since M1), "Create password" says "Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again."
+- [ ] Turn "Enable create (sign-up)" on, then "Create password": a 24-character password shows once with "Shown once. Paste it into the Shortcut now.", and "Reset password" and "Remove" appear; back in Settings the row reads "Password set". If Firebase asks for a recent sign-in, the Google popup opens once and the password is still created. Turn "Enable create (sign-up)" off again: everything below runs with it off.
 - [ ] Copy the five values (Project id, Web API key, Email, Expense categories, Income categories): each Copy says "Copied", and each dictionary lists the active categories of its kind and no archived one.
 - [ ] "3. Test it here": paste the password and tap "Send a test entry". "Test entry added" shows with Undo, and a 0.01 entry with the note "Shortcut test" appears on Home in the first expense category; Undo removes it. If the page says "Your email is not marked verified for password sign-in.", tap "Send verification email", open the link and test again. This checks that a password sign-in keeps the verified email the rules require.
 
 ### The Shortcut
 - [ ] Build "Add expense" from `docs/shortcut.md` and turn on "Show on Apple Watch" in its details.
 - [ ] Run it from Siri on the phone ("Hey Siri, add expense"), from the watch with the phone away (the watch on its own Wi-Fi or cellular), and from a watch-face complication (it asks for a confirmation tap first). Each time the entry appears in the app within seconds with the amount, the category and today's date, and Firebase Console shows its `source` as `shortcut`.
-- [ ] An amount of 10 or more and one typed with a decimal comma, such as `1250` and `12,50`, arrive with the right amounts. A refusal or a wrong amount points at step 4, which must give plain digits (Troubleshooting in `docs/shortcut.md`).
-- [ ] A run with a wrong password in step 10, and a run in airplane mode, show the error, and no entry appears.
+- [ ] An amount of 10 or more and one typed with a decimal comma, such as `1250` and `12,50`, arrive with the right amounts. A refusal or a wrong amount points at step 4: Format Number with 0 decimal places, then Replace Text (Troubleshooting in `docs/shortcut.md`).
+- [ ] A run with a wrong password in step 10, and a run in airplane mode, show an error instead of "Added …", and no entry appears.
 - [ ] "Reset password": the old Shortcut fails at its next run; with the new password pasted into step 10 it works again.
 - [ ] "Remove": the page says "Password removed. The Shortcut stops working until you create a new one.", and the Shortcut stops working.
 - [ ] (optional) The income copy adds an income entry under an income category.
