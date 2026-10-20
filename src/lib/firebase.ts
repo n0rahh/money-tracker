@@ -23,6 +23,11 @@ export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId && !String(firebaseConfig.apiKey).includes('YOUR_'),
 )
 
+// Two of the values the Shortcut is built with (Settings → Siri & Apple Watch shows them to copy); '' while unconfigured,
+// so that a placeholder such as YOUR_API_KEY is never offered for pasting.
+export const firebaseProjectId: string = isFirebaseConfigured ? (firebaseConfig.projectId ?? '') : ''
+export const firebaseApiKey: string = isFirebaseConfigured ? (firebaseConfig.apiKey ?? '') : ''
+
 let app: FirebaseApp | null = null
 let authInstance: Auth | null = null
 let dbInstance: Firestore | null = null

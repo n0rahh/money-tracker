@@ -14,7 +14,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-money-tracker \"vitest run --config vitest.rules.config.ts\"",
+    "test:rules": "firebase emulators:exec --only auth,firestore --project demo-money-tracker \"vitest run --config vitest.rules.config.ts\"",
     "test:scripts": "node --test scripts/*.test.mjs",
     "deploy": "npm run build && firebase deploy --project money-tracker-vlad --non-interactive"
   },

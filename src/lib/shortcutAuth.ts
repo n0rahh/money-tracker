@@ -1,0 +1,72 @@
+// The Shortcut's password: an email/password credential linked to the owner's Google account (spec §5, §14). The app
+// creates, resets and removes it; it never stores it. Whether one exists is read from the user's providers.
+import { EmailAuthProvider, linkWithCredential, reauthenticateWithPopup, sendEmailVerification, unlink, updatePassword, type User } from 'firebase/auth'
+import { googleProvider } from './firebase'
+import { PROVIDER_OFF_TEXT } from './shortcut'
+
+/** EmailAuthProvider.PROVIDER_ID, written out so that this module reads the same under a mocked SDK. */
+const PASSWORD_PROVIDER = 'password'
+
+const authCode = (e: unknown): unknown => (typeof e === 'object' && e !== null ? (e as { code?: unknown }).code : undefined)
+
+/** Whether the account has a Shortcut password: a password provider among its sign-in methods. */
+export function hasPasswordProvider(user: User): boolean {
+  return user.providerData.some((p) => p.providerId === PASSWORD_PROVIDER)
+}
+
+/**
+ * Runs a change to the account's sign-in methods. Firebase allows those only a few minutes after a sign-in and answers
+ * `auth/requires-recent-login` later on; then one Google popup signs the owner in again and the change is tried once more.
+ * A second refusal is passed on rather than asked again, so a popup can never come back in a loop.
+ */
+async function withRecentLogin(user: User, change: () => Promise<unknown>): Promise<void> {
+  try {
+    await change()
+  } catch (e) {
+    if (authCode(e) !== 'auth/requires-recent-login') throw e
+    await reauthenticateWithPopup(user, googleProvider)
+    await change()
+  }
+}
+
+/** Adds the password to the Google account, for the account's own email (the one the rules allow). */
+export function linkShortcutPassword(user: User, password: string): Promise<void> {
+  const email = user.email
+  // Every account the app lets in has the owner's email; without one the credential would be refused by Firebase anyway.
+  if (!email) return Promise.reject(new Error('This account has no email address'))
+  return withRecentLogin(user, () => linkWithCredential(user, EmailAuthProvider.credential(email, password)))
+}
+
+/** Replaces the password; a Shortcut that still holds the old one is refused from then on. */
+export function resetShortcutPassword(user: User, password: string): Promise<void> {
+  return withRecentLogin(user, () => updatePassword(user, password))
+}
+
+/** Removes the password provider from the account; every Shortcut with the password is refused from then on. */
+export function removeShortcutPassword(user: User): Promise<void> {
+  return withRecentLogin(user, () => unlink(user, PASSWORD_PROVIDER))
+}
+
+/** The fallback when a password sign-in's token says the email is not verified: Firebase's verification email. */
+export function sendShortcutVerificationEmail(user: User): Promise<void> {
+  return sendEmailVerification(user)
+}
+
+/** What the password step says when a change failed. */
+export function shortcutAuthErrorText(e: unknown): string {
+  switch (authCode(e)) {
+    case 'auth/operation-not-allowed':
+      return PROVIDER_OFF_TEXT
+    case 'auth/provider-already-linked':
+      return 'A Shortcut password already exists. Reset it instead.'
+    case 'auth/no-such-provider':
+      return 'There is no Shortcut password to remove.'
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Sign-in was cancelled.'
+    case 'auth/network-request-failed':
+      return "You're offline."
+    default:
+      return e instanceof Error ? e.message : 'Something went wrong'
+  }
+}
