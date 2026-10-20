@@ -35,7 +35,7 @@ describe('signInWithPassword', () => {
     await expect(signInWithPassword('vlad@example.com', 'secret', 'key-1')).resolves.toStrictEqual({ idToken, emailVerified: true })
     const { url, init, body } = sent()
     expect(url).toBe('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=key-1')
-    expect(init).toStrictEqual({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: init.body })
+    expect(init).toStrictEqual({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: init.body, signal: expect.any(AbortSignal) })
     expect(body).toStrictEqual({ email: 'vlad@example.com', password: 'secret', returnSecureToken: true })
   })
 
@@ -87,6 +87,11 @@ describe('signInWithPassword', () => {
     await expect(signInWithPassword('vlad@example.com', 'secret', 'key-1')).rejects.toMatchObject({ step: 'sign-in', status: 0, code: 'NETWORK' })
   })
 
+  it.each(['TimeoutError', 'AbortError'])('rejects with TIMEOUT and status 0 when the signal ends the request (%s)', async (name) => {
+    fetchMock.mockRejectedValueOnce(new DOMException('The operation timed out.', name))
+    await expect(signInWithPassword('vlad@example.com', 'secret', 'key-1')).rejects.toMatchObject({ step: 'sign-in', status: 0, code: 'TIMEOUT' })
+  })
+
   it('rejects with the status as the code when the answer has no error in it', async () => {
     fetchMock.mockResolvedValueOnce(new Response('<html>Service Unavailable</html>', { status: 503 }))
     await expect(signInWithPassword('vlad@example.com', 'secret', 'key-1')).rejects.toMatchObject({ step: 'sign-in', status: 503, code: '503' })
@@ -104,7 +109,7 @@ describe('createTransactionViaRest', () => {
     await expect(createTransactionViaRest(ENTRY, 'p', 't')).resolves.toStrictEqual({ id: 'abc' })
     const { url, init, body } = sent()
     expect(url).toBe('https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents/transactions')
-    expect(init).toStrictEqual({ method: 'POST', headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' }, body: init.body })
+    expect(init).toStrictEqual({ method: 'POST', headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' }, body: init.body, signal: expect.any(AbortSignal) })
     expect(body).toStrictEqual({ fields: firestoreFields(ENTRY) })
   })
 
@@ -126,6 +131,11 @@ describe('createTransactionViaRest', () => {
     await expect(createTransactionViaRest(ENTRY, 'p', 't')).rejects.toMatchObject({ step: 'write', status: 0, code: 'NETWORK' })
   })
 
+  it('rejects with TIMEOUT and status 0 when the time runs out', async () => {
+    fetchMock.mockRejectedValueOnce(new DOMException('The operation timed out.', 'TimeoutError'))
+    await expect(createTransactionViaRest(ENTRY, 'p', 't')).rejects.toMatchObject({ step: 'write', status: 0, code: 'TIMEOUT' })
+  })
+
   it('rejects with the status as the code when the answer has no error in it', async () => {
     fetchMock.mockResolvedValueOnce(new Response('Bad gateway', { status: 502 }))
     await expect(createTransactionViaRest(ENTRY, 'p', 't')).rejects.toMatchObject({ step: 'write', status: 502, code: '502' })
@@ -139,6 +149,25 @@ describe('createTransactionViaRest', () => {
   it('sends nothing for an amount the rules would refuse', async () => {
     await expect(createTransactionViaRest({ ...ENTRY, amount: 12.5 }, 'p', 't')).rejects.toBeInstanceOf(RangeError)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('the time limit', () => {
+  it('gives each of the two calls its own 15-second signal', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    try {
+      fetchMock
+        .mockResolvedValueOnce(reply(200, { idToken: token(OWNER_CLAIMS) }))
+        .mockResolvedValueOnce(reply(200, { name: 'projects/p/databases/(default)/documents/transactions/abc' }))
+      await signInWithPassword('vlad@example.com', 'secret', 'key-1')
+      await createTransactionViaRest(ENTRY, 'p', 't')
+      expect(timeout.mock.calls).toStrictEqual([[15_000], [15_000]])
+      const signals = fetchMock.mock.calls.map(([, init]) => init?.signal)
+      expect(signals).toStrictEqual(timeout.mock.results.map((r) => r.value))
+      expect(signals[0]).not.toBe(signals[1])
+    } finally {
+      timeout.mockRestore()
+    }
   })
 })
 
@@ -157,6 +186,7 @@ describe('shortcutErrorText', () => {
     { step: 'write', status: 403, code: 'PERMISSION_DENIED', text: "Firestore refused the entry. The email must be the owner's and verified (see step 3)." },
     { step: 'sign-in', status: 0, code: 'NETWORK', text: "You're offline." },
     { step: 'write', status: 0, code: 'NETWORK', text: "You're offline." },
+    { step: 'write', status: 0, code: 'TIMEOUT', text: 'The request timed out. Check the connection and try again.' },
   ] as const)('explains $code', ({ step, status, code, text }) => {
     expect(shortcutErrorText(new ShortcutRestError(step, status, code))).toBe(text)
   })

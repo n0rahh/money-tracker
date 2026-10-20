@@ -4,7 +4,7 @@ import { googleProvider } from './firebase'
 import {
   hasPasswordProvider,
   linkShortcutPassword,
-  removeShortcutPassword,
+  reauthenticateOwner,
   resetShortcutPassword,
   sendShortcutVerificationEmail,
   shortcutAuthErrorText,
@@ -14,7 +14,6 @@ const sdk = vi.hoisted(() => ({
   EmailAuthProvider: { credential: vi.fn((email: string, password: string) => ({ providerId: 'password', email, password })) },
   linkWithCredential: vi.fn((..._args: unknown[]) => Promise.resolve({})),
   updatePassword: vi.fn((..._args: unknown[]) => Promise.resolve()),
-  unlink: vi.fn((..._args: unknown[]) => Promise.resolve({})),
   reauthenticateWithPopup: vi.fn((..._args: unknown[]) => Promise.resolve({})),
   sendEmailVerification: vi.fn((..._args: unknown[]) => Promise.resolve()),
 }))
@@ -55,16 +54,25 @@ describe('linkShortcutPassword', () => {
   })
 })
 
-describe('resetShortcutPassword and removeShortcutPassword', () => {
+describe('resetShortcutPassword', () => {
   it('sets the new password', async () => {
     await expect(resetShortcutPassword(USER, 'pw-2')).resolves.toBeUndefined()
     expect(sdk.updatePassword).toHaveBeenCalledExactlyOnceWith(USER, 'pw-2')
   })
+})
 
-  it('unlinks the password provider', async () => {
-    const withPassword = userWith('google.com', 'password')
-    await expect(removeShortcutPassword(withPassword)).resolves.toBeUndefined()
-    expect(sdk.unlink).toHaveBeenCalledExactlyOnceWith(withPassword, 'password')
+describe('reauthenticateOwner', () => {
+  it("opens the Google popup with the app's own provider", async () => {
+    await expect(reauthenticateOwner(USER)).resolves.toBeUndefined()
+    expect(sdk.reauthenticateWithPopup).toHaveBeenCalledTimes(1)
+    expect(sdk.reauthenticateWithPopup.mock.calls[0][0]).toBe(USER)
+    expect(sdk.reauthenticateWithPopup.mock.calls[0][1]).toBe(googleProvider)
+  })
+
+  it('passes a blocked or closed popup on', async () => {
+    const blocked = authError('auth/popup-blocked')
+    sdk.reauthenticateWithPopup.mockRejectedValueOnce(blocked)
+    await expect(reauthenticateOwner(USER)).rejects.toBe(blocked)
   })
 })
 
@@ -72,7 +80,6 @@ describe('after a long session (auth/requires-recent-login)', () => {
   const MUTATIONS = [
     { name: 'linkShortcutPassword', run: () => linkShortcutPassword(USER, 'pw-1'), sdkCall: sdk.linkWithCredential },
     { name: 'resetShortcutPassword', run: () => resetShortcutPassword(USER, 'pw-2'), sdkCall: sdk.updatePassword },
-    { name: 'removeShortcutPassword', run: () => removeShortcutPassword(USER), sdkCall: sdk.unlink },
   ]
 
   it.each(MUTATIONS)('$name signs in again with the Google popup once, then retries', async ({ run, sdkCall }) => {
@@ -124,9 +131,9 @@ describe('shortcutAuthErrorText', () => {
     ['auth/operation-not-allowed', 'Email/password sign-in is off. Turn it on in Firebase Console → Authentication → Sign-in method.'],
     ['auth/admin-restricted-operation', 'Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again.'],
     ['auth/provider-already-linked', 'A Shortcut password already exists. Reset it instead.'],
-    ['auth/no-such-provider', 'There is no Shortcut password to remove.'],
     ['auth/popup-closed-by-user', 'Sign-in was cancelled.'],
     ['auth/cancelled-popup-request', 'Sign-in was cancelled.'],
+    ['auth/popup-blocked', 'The sign-in window was blocked. Tap "Confirm with Google", then try again.'],
     ['auth/network-request-failed', "You're offline."],
   ])('explains %s', (code, text) => {
     expect(shortcutAuthErrorText(authError(code))).toBe(text)

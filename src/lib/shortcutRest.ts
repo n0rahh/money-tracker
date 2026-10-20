@@ -9,7 +9,8 @@ type Step = 'sign-in' | 'write'
 /**
  * A refused or failed call. `code` is what the server named the failure: Identity Toolkit's `error.message`
  * (`INVALID_LOGIN_CREDENTIALS`) for the sign-in, Firestore's `error.status` (`PERMISSION_DENIED`) for the write; the HTTP
- * status as text when the answer held no error; `NETWORK`, with status 0, when no answer came at all.
+ * status as text when the answer held no error; with status 0, `NETWORK` when no answer came at all and `TIMEOUT` when
+ * none came within REQUEST_TIMEOUT_MS.
  */
 export class ShortcutRestError extends Error {
   readonly step: Step
@@ -27,6 +28,9 @@ export class ShortcutRestError extends Error {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
 
+/** How long each call may take: without a limit, a stalled connection would keep the page's test running for minutes. */
+const REQUEST_TIMEOUT_MS = 15_000
+
 /**
  * The code an error answer names. Identity Toolkit may follow its code with " : " and an explanation
  * ("TOO_MANY_ATTEMPTS_TRY_LATER : Access to this account has been temporarily disabled…"); only the code is kept, as the
@@ -43,10 +47,17 @@ function errorCode(step: Step, body: unknown): string | undefined {
 async function post(step: Step, url: string, headers: Record<string, string>, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   let response: Response
   try {
-    response = await fetch(url, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  } catch {
-    // fetch rejects only when no answer arrived at all: no connection, a failed DNS lookup, a request cut off.
-    throw new ShortcutRestError(step, 0, 'NETWORK')
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+  } catch (e) {
+    // fetch rejects only when no answer arrived: the signal's TimeoutError (an AbortError in older engines) when the time
+    // ran out, a TypeError for no connection, a failed DNS lookup or a request cut off.
+    const name = isRecord(e) ? e.name : undefined
+    throw new ShortcutRestError(step, 0, name === 'TimeoutError' || name === 'AbortError' ? 'TIMEOUT' : 'NETWORK')
   }
   // An answer that is no JSON (a proxy's or a Wi-Fi login page's HTML) reads as an empty one.
   const json: unknown = await response.json().catch(() => undefined)
@@ -104,6 +115,7 @@ const ERROR_TEXTS = new Map<string, string>([
   ['TOO_MANY_ATTEMPTS_TRY_LATER', 'Too many attempts. Try again in a few minutes.'],
   ['PERMISSION_DENIED', "Firestore refused the entry. The email must be the owner's and verified (see step 3)."],
   ['NETWORK', "You're offline."],
+  ['TIMEOUT', 'The request timed out. Check the connection and try again.'],
 ])
 
 /** What a failed test on the Shortcut page says: a sentence that says what to do for the failures the owner can fix. */

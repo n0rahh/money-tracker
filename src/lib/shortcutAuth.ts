@@ -1,6 +1,8 @@
 // The Shortcut's password: an email/password credential linked to the owner's Google account (spec §5, §14). The app
-// creates, resets and removes it; it never stores it. Whether one exists is read from the user's providers.
-import { EmailAuthProvider, linkWithCredential, reauthenticateWithPopup, sendEmailVerification, unlink, updatePassword, type User } from 'firebase/auth'
+// creates and resets it (a reset revokes every copy of the old one); it never stores it. There is no Remove: in the
+// Auth emulator, unlinking the password provider also clears the account's email, which would lock the owner out of
+// the rules. Whether a password exists is read from the user's providers.
+import { EmailAuthProvider, linkWithCredential, reauthenticateWithPopup, sendEmailVerification, updatePassword, type User } from 'firebase/auth'
 import { googleProvider } from './firebase'
 import { PROVIDER_OFF_TEXT } from './shortcut'
 
@@ -15,6 +17,15 @@ export function hasPasswordProvider(user: User): boolean {
 }
 
 /**
+ * Signs the owner in again with the Google popup, which renews the "recent login" that changing a password needs. The
+ * page calls it straight from a tap ("Confirm with Google") when the popup that withRecentLogin opens after an await
+ * was blocked: browsers allow a popup only inside a user's tap.
+ */
+export async function reauthenticateOwner(user: User): Promise<void> {
+  await reauthenticateWithPopup(user, googleProvider)
+}
+
+/**
  * Runs a change to the account's sign-in methods. Firebase allows those only a few minutes after a sign-in and answers
  * `auth/requires-recent-login` later on; then one Google popup signs the owner in again and the change is tried once more.
  * A second refusal is passed on rather than asked again, so a popup can never come back in a loop.
@@ -24,7 +35,7 @@ async function withRecentLogin(user: User, change: () => Promise<unknown>): Prom
     await change()
   } catch (e) {
     if (authCode(e) !== 'auth/requires-recent-login') throw e
-    await reauthenticateWithPopup(user, googleProvider)
+    await reauthenticateOwner(user)
     await change()
   }
 }
@@ -42,11 +53,6 @@ export function resetShortcutPassword(user: User, password: string): Promise<voi
   return withRecentLogin(user, () => updatePassword(user, password))
 }
 
-/** Removes the password provider from the account; every Shortcut with the password is refused from then on. */
-export function removeShortcutPassword(user: User): Promise<void> {
-  return withRecentLogin(user, () => unlink(user, PASSWORD_PROVIDER))
-}
-
 /** The fallback when a password sign-in's token says the email is not verified: Firebase's verification email. */
 export function sendShortcutVerificationEmail(user: User): Promise<void> {
   return sendEmailVerification(user)
@@ -62,11 +68,11 @@ export function shortcutAuthErrorText(e: unknown): string {
       return 'Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again.'
     case 'auth/provider-already-linked':
       return 'A Shortcut password already exists. Reset it instead.'
-    case 'auth/no-such-provider':
-      return 'There is no Shortcut password to remove.'
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
       return 'Sign-in was cancelled.'
+    case 'auth/popup-blocked':
+      return 'The sign-in window was blocked. Tap "Confirm with Google", then try again.'
     case 'auth/network-request-failed':
       return "You're offline."
     default:
