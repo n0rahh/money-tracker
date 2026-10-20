@@ -1,7 +1,7 @@
 # Money Tracker — Design Spec
 
 Date: 2026-10-14
-Status: Milestones 1–3 implemented (M1 and M2 2026-10-17, M3 2026-10-19); decisions in §15
+Status: Milestones 1–4 implemented (M1 and M2 2026-10-17, M3 2026-10-19, M4 2026-10-20); decisions in §15
 
 ## 1. Summary
 
@@ -250,7 +250,7 @@ Tap count for a normal expense: + → digits → category → Save.
   - CSV: the entries, columns `id,date,kind,amount,currency,category,note,source`, newest first; the amount a plain decimal in the currency's scale, the category by name ("Uncategorized" for a removed one); UTF-8 with a BOM, CRLF, RFC 4180 quoting.
   - JSON: `{ exportedAt, currency, categories, budgets, recurring, transactions }`, every document as the app reads it, timestamps as ISO strings (null for one that is no valid moment, which only a hand-made document has), amounts in minor units. There is no JSON importer yet: restoring one is a manual job.
   - Toasts: "Exported N entries"; "Could not export while offline"; on iOS, when the read outlasted the tap's window for the share sheet, "N entries ready to export" with a Share button (10 s) that hands over the file already built. A dismissed share sheet says nothing.
-- "Siri & Apple Watch quick add" (M4): set a quick-add password, shows the Shortcut recipe.
+- (M4) **Siri & Apple Watch** → `/shortcut`: a row reading "Password set" or "Not set up", from whether the signed-in user has a password credential, opening the Siri & Apple Watch page (below).
 - Install hint when not running standalone on iOS: "Share → Add to Home Screen".
 - Sign out, app version.
 
@@ -273,6 +273,15 @@ A sheet from Settings → Import CSV, for migrating from another app (a Money Ma
 
 - Rows are cleaned to what the app stores: a note becomes one line, cut to 200 characters; a category name is cut to 40; a row without a category goes to "Other". Dates: `YYYY-MM-DD` (also with `/` or `.`), `DD.MM.YYYY`, `DD-MM-YYYY`, `DD/MM/YYYY` or `MM/DD/YYYY`, a time after them ignored. Amounts: either decimal mark (decided per column), thousands grouping, a minus before or after, or parentheses. A zero, unreadable or too-large amount and an unreadable date are reported, not guessed.
 - Imported entries carry `source: "import"` and never a `recurringId`. Their ids (§6) make a second import of the same file overwrite instead of doubling. A row of this app's own export keeps its id, but only ids in the shapes this app writes are taken (any other id column is ignored), so re-importing that export changes no count. It does revert edits made since the export and brings back entries deleted since; a template's entry comes back as an ordinary imported entry, without its `recurringId`, and the template never writes that month again. A CSV restores entries only: `at` becomes local noon for a back-dated row, and icons, colours, budgets and templates are not in it.
+
+### Siri & Apple Watch (M4)
+
+Settings → Siri & Apple Watch (`/shortcut`; Back returns to Settings) holds what the Shortcut of §14 needs, under the intro "An Apple Shortcut adds expenses from Siri, the watch and the Action button. It signs in with a password that only the Shortcut knows." It has four numbered parts:
+
+1. **Shortcut password**: "Password set" or "No password yet"; "Create password" while there is none, "Reset password" and "Remove" once there is one. Create and Reset generate 24 characters from `A-Za-z0-9` (`crypto.getRandomValues`); Create links them to the signed-in Google user as an email/password credential, and Reset changes that password. The new password shows once, in a copy field, with "Shown once. Paste it into the Shortcut now." The app never stores it; whether one exists is read from the user's providers (`password`). Remove unlinks it: "Password removed. The Shortcut stops working until you create a new one." A failure shows as an alert line under the buttons (§11).
+2. **Values for the Shortcut**: copy fields for "Project id", "Web API key", "Email", "Expense categories" and "Income categories", with "Copy again after you add or rename categories." under the two dictionaries. A dictionary maps the name of each active category of its kind to its id, in category order, as JSON indented by two spaces; a repeated name gets " (2)", " (3)" and so on. Copy puts the value on the clipboard ("Copied"); where the clipboard cannot be used, it selects the text instead ("Select and copy the text").
+3. **Test it here**: a "Shortcut password" field (16 px, kept only while the page is open) and "Send a test entry", which makes the Shortcut's two calls (§14) and adds a real entry: 0.01 (one minor unit) in the first active expense category, note "Shortcut test", dated today. Its toast "Test entry added" offers Undo for 6 s, which deletes the entry. When the token's email is not marked verified, the line reads "Your email is not marked verified for password sign-in." with "Send verification email" (toast: "Verification email sent. Open the link, then test again."). Other failures show their sentence (§11). The button is disabled while a test runs and when there is no expense category.
+4. **Build the Shortcut**: the 14 actions of the recipe, each a title and one sentence, then a short paragraph on "Show on Apple Watch", the Siri phrase, the complication and the income copy, and the link "Full recipe and troubleshooting" to `docs/shortcut.md` on GitHub.
 
 ### First run
 
@@ -344,7 +353,7 @@ rose, red, orange, amber, yellow, lime, green, emerald, teal, cyan, sky, blue, i
 
 ## 10. Roadmap
 
-Each milestone ships a usable app and gets its own implementation plan. The plans for Milestones 1–3 are written and executed; M4's is written when you start it (it would otherwise go stale).
+Each milestone ships a usable app and gets its own implementation plan. The plans for Milestones 1–4 are written and executed.
 
 | Milestone | Scope | Acceptance |
 |---|---|---|
@@ -352,7 +361,7 @@ Each milestone ships a usable app and gets its own implementation plan. The plan
 | **M1 — Core logging** (≈ 1 weekend) | Scaffold, theme, auth, rules + rules tests, categories (seed + manage), add/edit/delete with keypad, Home month view with breakdown and day-grouped list, month switcher, currency first-run, PWA manifest/icons/service worker, deploy, device checklist. | On the iPhone home screen: add an expense in under 5 s; works offline and syncs; only your account works. |
 | **M2 — Insights** (implemented 2026-10-17) | Trends tab (monthly bars, range chips, category filter, table), Compare A vs. B, category detail, pace line and Δ on Home, daily strip, suggestion chips. Home keeps the viewed month in the URL so drill-downs and Back return to it. | "Was this month more expensive than last, and why?" is answered in two taps. |
 | **M3 — Power features** (implemented 2026-10-19) | Budgets with progress, recurring transactions, search/filter of the month list on Home, month/year picker, export JSON/CSV, import CSV, undo toast on delete, bundle/perf pass (every page but Home and Login lazy-loaded, which took only about 3 kB off the first load; Firebase alone is ~189 kB gzipped; the first paint ships at ≈ 302 kB gzipped against a 320 kB target, all JS at ≈ 323 kB against the 350 kB budget). | Monthly bills appear by themselves; old data imported; backup is one tap. |
-| **M4 — Siri & Apple Watch** (next, ≈ 1 evening) | Link an email/password credential for REST, Settings page recipe, Shortcut "Add expense" that signs in and POSTs to Firestore, `source: "shortcut"`, watch complication and Siri phrase, test from the watch with the phone away. | "Hey Siri, add expense" on the watch creates a transaction that appears in the app within seconds. |
+| **M4 — Siri & Apple Watch** (implemented 2026-10-20) | An email/password credential linked to the Google account for REST, created, reset and removed in the app; the Settings page `/shortcut` with the values to copy, a test of the Shortcut's two calls from the app, and the recipe (`docs/shortcut.md`); Shortcut "Add expense" that signs in and POSTs to Firestore, `source: "shortcut"`; watch complication and Siri phrase; an emulator test of the two calls against the rules, which did not change. The run from the watch with the phone away is on the device checklist. | "Hey Siri, add expense" on the watch creates a transaction that appears in the app within seconds. |
 
 Stretch ideas, deliberately out of scope until the above exists: accounts and transfers, multi-currency with rates, receipt photos (needs Blaze for Storage), a weekly push summary (needs a sender; doable for free from a GitHub Actions cron + FCM, but YAGNI), shared use with a second person.
 
@@ -373,6 +382,7 @@ Stretch ideas, deliberately out of scope until the above exists: accounts and tr
 - **Imports** (M3): offline, the rows reach the cache and Home at once and sync later; the progress line counts the rows the server has confirmed. A failure, a quota stop included, says how many rows were written, and importing the file again is safe. A day's 20,000 writes cover a 10,000-row file once.
 - **Recurring failures** (M3): a refused batch shows "Could not add the repeating entries: …" and is not sent again in that session; the next launch tries again.
 - **Rules deploy window** (M3): within one `npm run deploy` the rules are released seconds before hosting, but new rules take up to a minute to apply. A phone that reloads into the M3 build in that minute runs against the M2 rules, which deny `budgets` and `recurring`. Home then shows "Could not load budgets: …", Categories a toast, the Recurring page its error and Settings a dash; nothing is materialised in that session; Export JSON fails (Export CSV works); a repeating entry saved then is refused as a whole and disappears again ("Could not save: …"), and so is a new budget. A failed listener stays failed until it is attached again (a relaunch attaches all of them anew), so a relaunch after the minute recovers everything but such an entry. Hence the order in §13: rules first, a minute's wait, then `npm run deploy`.
+- **Siri & Apple Watch** (M4): the page's failures read as sentences, never as JSON. Creating, resetting or removing the password: "Email/password sign-in is off. Turn it on in Firebase Console → Authentication → Sign-in method." while the provider is off, "A Shortcut password already exists. Reset it instead.", "There is no Shortcut password to remove.", "Sign-in was cancelled.", "You're offline.", or the error's own message. When Firebase wants a recent sign-in for one of the three (`auth/requires-recent-login`), the app opens the Google popup once and tries again; a second refusal is shown. The test: the same console sentence, "Wrong password. Reset it in step 1 and paste the new one.", "Too many attempts. Try again in a few minutes.", "Firestore refused the entry. The email must be the owner's and verified (see step 3).", "You're offline.", the quota sentence above for a `429` or `RESOURCE_EXHAUSTED`, or "Something went wrong (<code or status>)." The Shortcut's own failures and their fixes: `docs/shortcut.md` (Troubleshooting).
 
 ## 12. Testing strategy
 
@@ -407,22 +417,20 @@ money-tracker/
   firebase.json, .firebaserc, firestore.rules, firestore.indexes.json
 ```
 
-## 14. Siri and Apple Watch quick add (Milestone 4 recipe)
+## 14. Siri and Apple Watch quick add (Milestone 4)
 
-Requires the email/password credential linked to your Google account (done from Settings → "Siri & Apple Watch quick add", which calls `linkWithCredential` with a password you choose; use a unique random one, it is stored inside the shortcut in your iCloud).
+An Apple Shortcut, "Add expense", adds an entry from the iPhone or the Apple Watch: from Siri ("Hey Siri, add expense"), the Shortcuts app, a watch-face complication or the Action button. It asks for the amount and the category, then makes two HTTP calls, so there is no server and no App Store. A copy with `"income"` and the income categories adds income.
 
-Shortcut "Add expense" (enable "Show on Apple Watch"):
+It signs in with an email/password credential linked to your Google account. Settings → Siri & Apple Watch (§7) generates the password (24 characters from `A-Za-z0-9`), shows it once and never stores it; it lives in the Shortcut, in your iCloud. Reset and Remove on that page revoke it. The Email/Password provider is turned on once, by you, in Firebase Console → Authentication → Sign-in method ("Email link (passwordless)" stays off).
 
-1. **Ask for Input** → Number, prompt "Amount?" (dictation or scribble on the watch).
-2. **Calculate** → amount × 100, then **Round** to 0 decimals (minor units).
-3. **Choose from List** → category names; a **Dictionary** maps names to Firestore category ids (copied once from the Categories page, which shows each id under "Copy id for Shortcuts").
-4. **Get Contents of URL** → POST `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=<web API key>` with JSON `{ "email": "...", "password": "...", "returnSecureToken": true }` → **Get Dictionary Value** `idToken`.
-5. **Format Date** (current date) → `yyyy-MM-dd` and ISO 8601.
-6. **Get Contents of URL** → POST `https://firestore.googleapis.com/v1/projects/money-tracker-vlad/databases/(default)/documents/transactions`, header `Authorization: Bearer <idToken>`, JSON body in Firestore's typed format:
-   `{"fields":{"kind":{"stringValue":"expense"},"amount":{"integerValue":"<minor>"},"categoryId":{"stringValue":"<id>"},"note":{"stringValue":""},"date":{"stringValue":"<yyyy-MM-dd>"},"at":{"timestampValue":"<ISO 8601>"},"source":{"stringValue":"shortcut"}}}`
-7. **Show Notification** "Added €12.50 to Coffee".
+The two calls, which the page's "Send a test entry" also makes:
 
-The same shortcut runs from Siri on the watch or phone, from a watch-face complication (watchOS asks for a confirmation tap), and from the iPhone Action Button or Back Tap. The web API key is public by design; the rules and the password are what protect the data.
+1. `POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=<web API key>`, JSON `{"email":"<owner email>","password":"<password>","returnSecureToken":true}` → `idToken`, a JWT whose payload carries `email` and `email_verified`.
+2. `POST https://firestore.googleapis.com/v1/projects/<project id>/databases/(default)/documents/transactions`, headers `Authorization: Bearer <idToken>` and `Content-Type: application/json`, JSON `{"fields":{"kind":{"stringValue":"expense"},"amount":{"integerValue":"1250"},"categoryId":{"stringValue":"<id>"},"note":{"stringValue":""},"date":{"stringValue":"2026-10-20"},"at":{"timestampValue":"2026-10-20T17:05:00Z"},"source":{"stringValue":"shortcut"}}}` → `200` with the document, whose `name` ends in the new auto-id; `403 PERMISSION_DENIED` when the rules refuse, `401` for a bad token, `400` for a malformed body. `integerValue` is a JSON string; `timestampValue` is RFC 3339, with an offset (`+02:00`) or `Z`.
+
+The entry carries no `recurringId` and no `createdAt`/`updatedAt` (REST cannot set server timestamps; both are optional, §6). The rules did not change for M4: they already accept `source: "shortcut"`, and the entry passes the same checks as one made in the app. The web API key is public by design; the rules and the password are what protect the data.
+
+The recipe, action by action, with Siri and the watch, the income copy, troubleshooting and the security note: [`docs/shortcut.md`](../../shortcut.md).
 
 ## 15. Decisions confirmed by Vlad (2026-10-14)
 
@@ -444,6 +452,12 @@ Milestone 3 (2026-10-19): item 9 is Vlad's; the others were ruled on his behalf 
 13. **Search placement**: the bar opens above the day list and the page jumps to it; the device pass decides whether it stays (§7).
 14. **Exports**: from the server only, so offline they fail; the share sheet on a touch device, a download elsewhere; the JSON is the full backup and has no importer yet (§7).
 15. **Import ids**: content ids, so a second import overwrites instead of doubling; the app's own export keeps its ids, taken only in the shapes the app writes (§6, §7).
+
+Milestone 4 (2026-10-20): items 16 to 18 were ruled on Vlad's behalf when the plan was written, and `docs/m4-rulings.md` records each with what it costs if wrong.
+
+16. **Shortcut sign-in**: an email/password credential linked to the Google account, with a password the app generates and shows once, instead of the SDK's refresh token. A password can be reset or removed from the app, and the Email/Password provider turned off in the console; a refresh token does not expire on its own (§5). The rules do not change (§14).
+17. **The in-app test writes a real entry**: "Send a test entry" makes the Shortcut's two calls and adds 0.01, with Undo on its toast. It checks the provider, the password, the token's verified email and the rules on the phone before the Shortcut is built; an email not marked verified gets "Send verification email" (§7).
+18. **Categories pasted once**: the Shortcut carries a name → id dictionary copied from the app and fetches no categories when it runs on the watch. The page builds the dictionary again at any time; copy it again after adding or renaming categories. An entry written with an older copy is still valid (§7, §14).
 
 ## 16. Alternatives considered
 
