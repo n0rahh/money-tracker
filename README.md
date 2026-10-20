@@ -45,7 +45,7 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"   # the emulators need a JDK
 npx firebase emulators:start --only auth,firestore --project demo-money-tracker --import=./.emulator-data --export-on-exit=./.emulator-data
 ```
 
-The Auth emulator's "Add new account" screen accepts the owner email; the rules require `email_verified`, which the emulator sets for fake Google accounts.
+The Auth emulator's "Add new account" screen accepts the owner email; the rules require `email_verified`, which the emulator sets for fake Google accounts. On the emulators, "Create password" on the Siri & Apple Watch page cannot work (the Auth emulator refuses to link a password to an account with the same email); only part 3, the test, works there, with a password account made in the emulator.
 
 ## Checks
 
@@ -69,6 +69,8 @@ The build inlines `.env.local`, so it must hold the real config (and `VITE_USE_E
 
 Milestone 3 changes the rules, so deploy them first: run the `--only firestore` line, wait about a minute for the rules to apply, then run `npm run deploy` (its rules step then has nothing new to release). The M2 client works with the M3 rules, so this order is always safe; never deploy hosting alone. One `npm run deploy` does release the rules seconds before hosting, but a phone that reloads into the new build before they apply runs against the M2 rules: budgets and recurring show permission errors, nothing is materialised, Export JSON fails, and a repeating entry saved in that minute disappears. Relaunching the app after the minute recovers everything but that entry.
 
+Milestone 4 does not change the rules; `npm run deploy` alone is enough.
+
 ## Backups and import
 
 Settings → Data has Export CSV, Export JSON and Import CSV. Exports read from the server, so they need a connection (offline they fail rather than save part of the data). On the iPhone the file goes to the share sheet (Save to Files); on a computer it downloads.
@@ -89,7 +91,7 @@ Keep the backup and the dump under `imports/` (for example `node scripts/mmbak-d
 
 An Apple Shortcut, "Add expense", adds an entry from Siri, the Apple Watch, a watch-face complication or the Action button. It signs in with a password linked to your Google account and writes the entry through Firestore's REST API, so there is still no server and no App Store.
 
-1. Once, in Firebase Console → Authentication → Sign-in method: add **Email/Password** and enable it (leave "Email link (passwordless)" off). The app cannot turn it on itself. Also keep Authentication → Settings → User actions → "Enable create (sign-up)" on until the password exists: the app links it through sign-up.
+1. Once, in Firebase Console → Authentication → Sign-in method: add **Email/Password** and enable it (leave "Email link (passwordless)" off). The app cannot turn it on itself. Authentication → Settings → User actions → "Enable create (sign-up)" has been off since Milestone 1: turn it on for the Create step, then off again (the app links the password through sign-up, which the switch may block).
 2. In the app, Settings → Siri & Apple Watch: create the password (shown once, never stored), then turn "Enable create (sign-up)" off again. Copy the seven values and send a test entry; its Undo removes it.
 3. On the iPhone, build the Shortcut from [docs/shortcut.md](docs/shortcut.md) and turn on "Show on Apple Watch".
 
@@ -99,7 +101,9 @@ For income, duplicate the Shortcut, change `"expense"` to `"income"` and paste t
 
 | Milestone | Scope |
 |---|---|
-| M1 (implemented; first deploy and the iPhone checklist pending) | Sign-in, categories (seeded + editable), add/edit/delete with keypad, month view, PWA, deploy |
+| M1 (implemented) | Sign-in, categories (seeded + editable), add/edit/delete with keypad, month view, PWA, deploy |
 | M2 (implemented) | Trends (monthly bars, ranges, category filter), compare two months, category detail, pace line, daily strip, suggestion chips |
 | M3 (implemented) | Budgets, recurring transactions, search, month picker, export/import (Money Manager backup), undo, perf pass |
 | M4 (implemented) | Siri + Apple Watch quick add through a Shortcut: a password linked to the Google account, a Settings page with an in-app test, the recipe |
+
+No pass of the iPhone checklist ([docs/device-checklist.md](docs/device-checklist.md)) is recorded yet; it is the owner's to run.
