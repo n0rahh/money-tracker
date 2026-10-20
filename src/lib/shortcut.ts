@@ -59,6 +59,7 @@ export function generateShortcutPassword(random: (bytes: Uint8Array<ArrayBuffer>
  * The text pasted into the Shortcut's categories step: `{ "name": "id" }` for the active categories of one kind, in their
  * order (the order the Shortcut's list shows them in), two spaces deep. A name loses its dots: Shortcuts reads a "." in a
  * key as a path into the dictionary (as step 14 does with "error.message"), so "Dr. visits" would find no id at step 9.
+ * A name with nothing left then reads "Unnamed": an empty key would be a blank row in the list, which finds no id.
  * A repeated name, also one that repeats only once its dots are gone, gets " (2)", " (3)", …: a JSON object cannot hold
  * one key twice, so without the suffix one of the categories would silently drop out of the list. Archived categories
  * stay out, as in every picker of the app.
@@ -69,7 +70,8 @@ export function categoryDictionary(categories: Category[], kind: Kind): string {
   const taken = new Set<string>()
   const lines: string[] = []
   for (const { id, name } of active) {
-    const base = name.replaceAll('.', '')
+    const stripped = name.replaceAll('.', '')
+    const base = stripped.trim() === '' ? 'Unnamed' : stripped
     let key = base
     for (let n = 2; taken.has(key); n++) key = `${base} (${n})`
     taken.add(key)

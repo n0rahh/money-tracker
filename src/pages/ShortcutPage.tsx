@@ -1,6 +1,6 @@
 import type { User } from 'firebase/auth'
 import { ChevronLeft } from 'lucide-react'
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { CopyField } from '../components/CopyField'
@@ -27,6 +27,8 @@ const INTRO = 'An Apple Shortcut adds expenses from Siri, the watch and the Acti
 const RESET_NOTE = 'The old password stops working; other signed-in devices may need to sign in again.'
 const REVERIFY_TEXT = 'Your email needs re-verifying for password sign-in.'
 const SENT_TEXT = 'Verification email sent. Open the link, then test again.'
+const NEW_PASSWORD_HINT =
+  'Shown once. Paste it into the Shortcut now, or keep this page open until step 10; if the page reloads, tap Reset and paste the new one.'
 const GATE_TEXT = 'Create the password in step 1 first.'
 const TEST_NOTE = 'Makes the Shortcut\'s two calls with this password and adds a real entry of 0.01, "Shortcut test", to your first expense category. Undo removes it.'
 const WATCH_NOTE =
@@ -218,7 +220,7 @@ function PasswordPart({ user, hasPassword, onPasswordMade, reverify, setReverify
       ) : null}
       {password ? (
         <div className="mt-4">
-          <CopyField label="New password" value={password} hint="Shown once. Paste it into the Shortcut now." />
+          <CopyField label="New password" value={password} hint={NEW_PASSWORD_HINT} />
         </div>
       ) : null}
       {reverify ? (
@@ -397,11 +399,26 @@ export function ShortcutPage() {
   const { categories, loading, error } = useCategories()
   const location = useLocation()
   const navigate = useNavigate()
-  // A password made on this visit: the SDK adds the provider to the user object in place, which re-renders nothing.
-  const [passwordMade, setPasswordMade] = useState(false)
+  // Whether the account has a password. The SDK changes the user object in place, which re-renders nothing, so the page
+  // keeps what it learns: the providers it opened with, a password made on this visit, or one that the reload finds.
+  const [hasPassword, setHasPassword] = useState(() => user !== null && hasPasswordProvider(user))
   // Part 1's re-verify sentence, here because part 3's test takes it away once its sign-in finds the email verified.
   const [reverify, setReverify] = useState<Reverify | null>(null)
-  const hasPassword = passwordMade || (user !== null && hasPasswordProvider(user))
+
+  // A password made on another device since this one signed in shows in the providers only once the account is read
+  // again from the server. Nothing waits for that, and when it fails (offline) the page keeps what it opened with.
+  useEffect(() => {
+    if (user === null) return
+    let open = true
+    void (async () => {
+      await user.reload()
+      if (open && hasPasswordProvider(user)) setHasPassword(true)
+    })().catch(() => {})
+    return () => {
+      open = false
+    }
+  }, [user])
+
   // The test's category: the first of the Shortcut's own list, in the order categoryDictionary gives it.
   const firstExpense = categories.filter((c) => c.kind === 'expense' && !c.archived).sort((a, b) => a.order - b.order)[0]
 
@@ -432,7 +449,7 @@ export function ShortcutPage() {
           <PasswordPart
             user={user}
             hasPassword={hasPassword}
-            onPasswordMade={() => setPasswordMade(true)}
+            onPasswordMade={() => setHasPassword(true)}
             reverify={reverify}
             setReverify={setReverify}
           />

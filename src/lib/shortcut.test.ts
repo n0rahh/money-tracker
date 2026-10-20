@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { categoryDictionary, DEFAULT_HOSTS, firestoreFields, generateShortcutPassword, SHORTCUT_RECIPE, signInUrl, transactionsUrl, type ShortcutEntry } from './shortcut'
+import { createTransactionViaRest, signInWithPassword } from './shortcutRest'
 import type { Category } from './types'
 
 /** The Global Constraints example: €12.50 on 20 Oct 2026 at 17:05 UTC. */
@@ -128,6 +130,11 @@ describe('categoryDictionary', () => {
     )
   })
 
+  it('calls a name that nothing is left of once its dots are gone "Unnamed", never an empty key, and keeps those apart too', () => {
+    const categories = [cat('a', '...', 0), cat('b', ' . ', 1), cat('c', 'Unnamed', 2)]
+    expect(categoryDictionary(categories, 'expense')).toBe('{\n  "Unnamed": "a",\n  "Unnamed (2)": "b",\n  "Unnamed (3)": "c"\n}')
+  })
+
   it('escapes quotes in a name, so the pasted text stays valid JSON', () => {
     expect(JSON.parse(categoryDictionary([cat('q', 'Say "cheese"', 0)], 'expense'))).toStrictEqual({ 'Say "cheese"': 'q' })
   })
@@ -181,5 +188,63 @@ describe('SHORTCUT_RECIPE', () => {
       expect(detail).toMatch(/^[A-Z].*\.$/)
       expect(detail.slice(0, -1)).not.toMatch(/\.\s/)
     }
+  })
+})
+
+describe('docs/shortcut.md, which the owner builds the Shortcut from', () => {
+  // From the project root, where the tests run, as the rules tests read firestore.rules.
+  const docs = readFileSync('docs/shortcut.md', 'utf8')
+
+  /** Step `n` of the recipe in the docs: its heading and what follows, up to the next heading. */
+  function step(n: number): string {
+    const start = docs.indexOf(`\n### ${n}. `)
+    if (start === -1) throw new Error(`docs/shortcut.md has no step ${n}`)
+    const rest = docs.slice(start + 1)
+    const end = rest.search(/\n#{1,6} /)
+    return end === -1 ? rest : rest.slice(0, end)
+  }
+  /** The line of a step's first JSON block, which the owner pastes. */
+  const pasted = (section: string) => /```json\n(.+)\n```/.exec(section)?.[1] ?? ''
+
+  /** The body of the one request the app's client sends for `call`, answered with `answer`. */
+  async function bodySent(call: () => Promise<unknown>, answer: object): Promise<string> {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(answer), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await call()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    return String(fetchMock.mock.calls[0]?.[1]?.body)
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("fills step 13's template, its four placeholders replaced by the entry's values, into exactly the body the client sends", async () => {
+    const template = pasted(step(13))
+    // In the order of the table under it: the day's Formatted Date first, then the moment's.
+    expect(template.match(/<[^>]+>/g)).toStrictEqual(['<Updated Text>', '<Dictionary Value>', '<Formatted Date>', '<Formatted Date>'])
+    const filled = template
+      .replace('<Updated Text>', String(ENTRY.amount))
+      .replace('<Dictionary Value>', ENTRY.categoryId)
+      .replace('<Formatted Date>', ENTRY.date)
+      .replace('<Formatted Date>', ENTRY.at.toISOString())
+    const sent = await bodySent(() => createTransactionViaRest(ENTRY, 'p', 't'), { name: 'projects/p/databases/(default)/documents/transactions/abc' })
+    expect(filled).toBe(sent)
+  })
+
+  it("shows step 10's body, the email and the password put in, as exactly the client's sign-in body", async () => {
+    const filled = pasted(step(10)).replace('<owner email>', 'vlad@example.com').replace('<password>', 'Pw1')
+    const sent = await bodySent(() => signInWithPassword('vlad@example.com', 'Pw1', 'k'), { idToken: 'header.payload.signature' })
+    expect(filled).toBe(sent)
+  })
+
+  it.each([
+    // Format Number may group the digits ("1,250"): only a pattern that keeps digits alone makes them plain.
+    { n: 4, docs: '`[^0-9]`', page: 'find [^0-9]' },
+    // The body is the Text of step 13 as it is: a "JSON" body would be rebuilt from fields by Shortcuts.
+    { n: 14, docs: '"Request Body": "File"', page: 'Request Body "File"' },
+  ])('agrees with the page on step $n', ({ n, docs: inDocs, page }) => {
+    expect(step(n)).toContain(inDocs)
+    expect(SHORTCUT_RECIPE[n - 1]?.detail).toContain(page)
   })
 })

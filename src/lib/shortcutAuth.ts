@@ -68,7 +68,17 @@ export function shortcutAuthErrorText(e: unknown): string {
     case 'auth/admin-restricted-operation':
       return 'Sign-up is turned off in Firebase Console (Authentication → Settings → User actions). Turn it on, create the password, then turn it off again.'
     case 'auth/provider-already-linked':
+    // What linking answers when another device made the password since this one read the account.
+    case 'auth/email-already-in-use':
       return 'A Shortcut password already exists. Reset it instead.'
+    // Only a second refusal gets here: withRecentLogin answers the first with the Google popup.
+    case 'auth/requires-recent-login':
+      return 'Sign in again, then try again.'
+    // The Google sign-in picked another account than the one the change is for.
+    case 'auth/user-mismatch':
+      return "That was a different Google account. Sign in with the owner's account and try again."
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Try again in a few minutes.'
     case 'auth/popup-closed-by-user':
     case 'auth/cancelled-popup-request':
       return 'Sign-in was cancelled.'

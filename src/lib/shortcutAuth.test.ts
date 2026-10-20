@@ -135,12 +135,18 @@ describe('shortcutAuthErrorText', () => {
     ['auth/cancelled-popup-request', 'Sign-in was cancelled.'],
     ['auth/popup-blocked', 'The sign-in window was blocked. Tap "Confirm with Google" to go on.'],
     ['auth/network-request-failed', "You're offline."],
+    ['auth/user-mismatch', "That was a different Google account. Sign in with the owner's account and try again."],
+    ['auth/too-many-requests', 'Too many attempts. Try again in a few minutes.'],
+    // What linking answers when the account already has a password that this device did not know of.
+    ['auth/email-already-in-use', 'A Shortcut password already exists. Reset it instead.'],
+    // Only a second refusal gets this far: withRecentLogin answers the first with the Google popup.
+    ['auth/requires-recent-login', 'Sign in again, then try again.'],
   ])('explains %s', (code, text) => {
     expect(shortcutAuthErrorText(authError(code))).toBe(text)
   })
 
   it('keeps the message of any other error', () => {
-    expect(shortcutAuthErrorText(authError('auth/email-already-in-use'))).toBe('Firebase: Error (auth/email-already-in-use).')
+    expect(shortcutAuthErrorText(authError('auth/internal-error'))).toBe('Firebase: Error (auth/internal-error).')
     expect(shortcutAuthErrorText(new Error('boom'))).toBe('boom')
   })
 

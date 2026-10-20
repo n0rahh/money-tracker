@@ -70,21 +70,25 @@ const withCategories = (categories: Category[], state: { loading?: boolean; erro
   useCategories.mockReturnValue({ categories, byId: new Map(categories.map((c) => [c.id, c])), loading: state.loading ?? false, error: state.error ?? null })
 
 const getIdTokenResult = vi.fn()
+const reload = vi.fn()
+/** One entry of the user's providerData: a sign-in method. */
+const provider = (providerId: string) => ({
+  providerId,
+  uid: providerId === 'password' ? OWNER : '104729',
+  email: OWNER,
+  displayName: providerId === 'password' ? null : 'Vlad',
+  phoneNumber: null,
+  photoURL: null,
+})
 /** The signed-in owner as Firebase's User carries it, with one provider entry per sign-in method. */
 const owner = (...providers: string[]) => ({
   uid: 'owner-uid',
   email: OWNER,
   emailVerified: true,
   displayName: 'Vlad',
-  providerData: providers.map((providerId) => ({
-    providerId,
-    uid: providerId === 'password' ? OWNER : '104729',
-    email: OWNER,
-    displayName: providerId === 'password' ? null : 'Vlad',
-    phoneNumber: null,
-    photoURL: null,
-  })),
+  providerData: providers.map(provider),
   getIdTokenResult,
+  reload,
 })
 /** A moment some minutes before now, written as the SDK writes authTime (a UTC date string). */
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toUTCString()
@@ -103,7 +107,7 @@ const tokenResult = (emailVerified?: boolean, signedInMinutesAgo: number | null 
 })
 const tooManyRequests = () => new FirebaseError('auth/too-many-requests', 'Firebase: Error (auth/too-many-requests).')
 const offline = () => new FirebaseError('auth/network-request-failed', 'Firebase: Error (auth/network-request-failed).')
-const COULD_NOT_SEND = 'Could not send the verification email: Firebase: Error (auth/too-many-requests).'
+const COULD_NOT_SEND = 'Could not send the verification email: Too many attempts. Try again in a few minutes.'
 const REVERIFY = 'Your email needs re-verifying for password sign-in.'
 const GATE = 'Create the password in step 1 first.'
 let signedIn = owner('google.com')
@@ -141,6 +145,7 @@ beforeEach(() => {
   useAuth.mockImplementation(() => ({ user: signedIn, loading: false, configured: true, error: null, signIn: vi.fn(), logOut: vi.fn() }))
   withCategories(CATEGORIES)
   getIdTokenResult.mockResolvedValue(tokenResult(true))
+  reload.mockResolvedValue(undefined)
   linkShortcutPassword.mockResolvedValue(undefined)
   resetShortcutPassword.mockResolvedValue(undefined)
   reauthenticateOwner.mockResolvedValue(undefined)
@@ -200,7 +205,7 @@ describe('ShortcutPage', () => {
       expect(generateShortcutPassword).toHaveBeenCalledExactlyOnceWith()
       expect(created).toBe(vi.mocked(generateShortcutPassword).mock.results[0]?.value)
       expect(within(shown).getByText(created)).toBeInTheDocument()
-      expect(within(shown).getByText('Shown once. Paste it into the Shortcut now.')).toBeInTheDocument()
+      expect(within(shown).getByText('Shown once. Paste it into the Shortcut now, or keep this page open until step 10; if the page reloads, tap Reset and paste the new one.')).toBeInTheDocument()
       // The SDK changes the user object in place, which re-renders nothing: the page keeps what it did itself.
       expect(within(password).getByText('Password set')).toBeInTheDocument()
       expect(within(password).queryByRole('button', { name: 'Create password' })).not.toBeInTheDocument()
@@ -214,6 +219,34 @@ describe('ShortcutPage', () => {
       expect(getIdTokenResult).toHaveBeenCalledWith(true)
       expect(sendShortcutVerificationEmail).not.toHaveBeenCalled()
       expect(within(password).queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('learns of a password made on another device once the account is read again, without waiting for it', async () => {
+      let reloaded: () => void = () => {}
+      reload.mockReturnValue(new Promise<void>((resolve) => (reloaded = resolve)))
+      page()
+      const password = part('1. Shortcut password')
+      // Shown at once, while the reload is still out.
+      expect(within(password).getByText('No password yet')).toBeInTheDocument()
+      expect(reload).toHaveBeenCalledTimes(1)
+
+      // As the SDK does: the user object changes in place, then the reload resolves.
+      signedIn.providerData.push(provider('password'))
+      await act(async () => reloaded())
+      expect(within(password).getByText('Password set')).toBeInTheDocument()
+      expect(within(password).getByRole('button', { name: 'Reset password' })).toBeEnabled()
+      expect(within(part('3. Test it here')).getByLabelText('Shortcut password')).toBeEnabled()
+    })
+
+    it('keeps what it has when the account cannot be read again', async () => {
+      reload.mockRejectedValue(offline())
+      page()
+      await settle()
+      const password = part('1. Shortcut password')
+      expect(within(password).getByText('No password yet')).toBeInTheDocument()
+      expect(within(password).getByRole('button', { name: 'Create password' })).toBeEnabled()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
     })
 
     it.each(CHANGES)('takes one change at a time ($button)', async ({ button, providers, change }) => {
@@ -573,9 +606,14 @@ describe('ShortcutPage', () => {
       expect(send()).toBeEnabled()
     })
 
-    it("makes the Shortcut's two calls and offers Undo for the entry they wrote", async () => {
+    it.each([
+      // Half an hour after local midnight: in Warsaw (UTC+2) the UTC day is still the 20th.
+      { now: new Date(2026, 9, 21, 0, 30), day: '2026-10-21' },
+      // Half an hour before it: west of UTC (Los Angeles) the UTC day is already the 21st.
+      { now: new Date(2026, 9, 20, 23, 30), day: '2026-10-20' },
+    ])("makes the Shortcut's two calls, dated by the local day ($day), and offers Undo for the entry they wrote", async ({ now, day }) => {
       vi.useFakeTimers({ toFake: ['Date'] })
-      vi.setSystemTime(new Date(2026, 9, 20, 19, 5))
+      vi.setSystemTime(now)
       const user = userEvent.setup()
       page()
       const field = within(part('3. Test it here')).getByLabelText('Shortcut password')
@@ -590,7 +628,7 @@ describe('ShortcutPage', () => {
       expect(signInWithPassword).toHaveBeenCalledWith(OWNER, 'Pa55word', 'key', DEFAULT_HOSTS)
       // One minor unit in the first active expense category (not the archived Gym before it), dated and timed now.
       expect(createTransactionViaRest).toHaveBeenCalledWith(
-        { kind: 'expense', amount: 1, categoryId: 'groceries', note: 'Shortcut test', date: '2026-10-20', at: new Date(2026, 9, 20, 19, 5) },
+        { kind: 'expense', amount: 1, categoryId: 'groceries', note: 'Shortcut test', date: day, at: now },
         'money-tracker-vlad',
         't',
         DEFAULT_HOSTS,
